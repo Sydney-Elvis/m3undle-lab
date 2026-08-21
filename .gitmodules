@@ -1,0 +1,3 @@
+[submodule "se-lab"]
+	path = se-lab
+	url = git@github.com:Sydney-Elvis/se-lab.git
