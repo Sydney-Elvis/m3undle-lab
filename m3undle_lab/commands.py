@@ -14,6 +14,7 @@ from agent.suites import discover_suites, run_suite
 
 from .analysis import M3UndleAnalysis
 from .database import M3UndleDatabase
+from .settings import M3UndleSettings
 from . import clients as _clients  # noqa: F401 - class decorators register product clients
 
 
@@ -25,6 +26,7 @@ TESTS_DIR = Path(__file__).resolve().parents[1] / "tests"
 
 registry.set_analysis_plugin(M3UndleAnalysis())
 registry.set_database_plugin(M3UndleDatabase())
+registry.set_settings_plugin(M3UndleSettings())
 
 
 def _layout() -> None:
