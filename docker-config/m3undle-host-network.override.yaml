@@ -1,0 +1,5 @@
+# Automated suites use the same host-network topology as the frozen srv1 lab.
+services:
+  m3undle:
+    network_mode: host
+

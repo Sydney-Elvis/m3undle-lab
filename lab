@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON="$SCRIPT_DIR/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  echo "No .venv found at $SCRIPT_DIR/.venv -- run setup first (see README)." >&2
+  echo "Falling back to system python3; dependencies may be missing." >&2
+  PYTHON="python3"
+fi
+
+exec "$PYTHON" "$SCRIPT_DIR/scripts/agent.py" "$@"
+

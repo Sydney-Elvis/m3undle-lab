@@ -1,0 +1,32 @@
+# Base M3Undle stack. Network topology is selected by a command-level override.
+services:
+  m3undle:
+    container_name: m3undle-lab
+    image: ${M3UNDLE_IMAGE:?M3UNDLE_IMAGE must be set}
+    environment:
+      ASPNETCORE_URLS: http://+:5004;http://+:8080;http://+:9999
+      ASPNETCORE_HTTP_PORTS: 5004;8080;9999
+      M3UNDLE_TEST_MODE: "true"
+      M3UNDLE_ENCRYPTION_KEY: ${M3UNDLE_ENCRYPTION_KEY:-}
+      M3UNDLE_ENCRYPTION_KEYS: ${M3UNDLE_ENCRYPTION_KEYS:-}
+      M3UNDLE_AUTH_ENABLED: ${M3UNDLE_AUTH_ENABLED:-}
+      M3UNDLE_ADMIN_USER: ${M3UNDLE_ADMIN_USER:-}
+      M3UNDLE_ADMIN_PASSWORD: ${M3UNDLE_ADMIN_PASSWORD:-}
+      M3UNDLE_CONFIG_DIR: /config
+      M3UNDLE_M3U_DIR: /m3u_data
+      M3UNDLE_HDHR_ENABLED: "true"
+      M3Undle__HdHomeRun__DiscoveryEnabled: "true"
+      M3Undle__HdHomeRun__SsdpEnabled: "true"
+      M3Undle__HdHomeRun__SiliconDustDiscoveryEnabled: "true"
+      M3Undle__HdHomeRun__AdvertisedBaseUrl: ${M3UNDLE_HDHR_ADVERTISED_BASE_URL:?M3UNDLE_HDHR_ADVERTISED_BASE_URL must be set}
+    volumes:
+      - ./.config:/config
+      - ./m3u_data:/m3u_data
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

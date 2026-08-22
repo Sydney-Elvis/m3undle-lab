@@ -1,0 +1,19 @@
+# Future `lab clients up` topology. The M3Undle IP is intentionally immutable:
+# NextPVR caches a manually added HDHomeRun address and will not re-resolve it.
+services:
+  m3undle:
+    ports:
+      - "5004:5004"
+      - "8080:8080"
+      - "9999:9999"
+    networks:
+      media:
+        ipv4_address: 172.21.0.2
+
+networks:
+  media:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
