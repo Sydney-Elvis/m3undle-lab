@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent import common as lab_common
 from agent.container import get_docker_gateway
 from agent.suites import suite
 
@@ -128,15 +129,26 @@ def setup(base_url: str) -> dict[str, object]:
             fixture=SIM_FIXTURE, port=SIM_PORT, bind=bind, public_host=public_host, suite="integrations"
         )
         state["simulator"] = simulator
-        simulator.start()
+        simulator.start(log_path=lab_common.runtime_results_dir() / "sim-integrations.log")
         if not simulator.wait_healthy():
             state["reason"] = "Provider simulator did not become healthy"
             return {"state": state}
         client = M3UndleClient(base_url)
         state["client"] = client
-        if not client.setup(playlist_url=simulator.playlist_url, provider_name=_unique_name("provider-int-a")):
-            state["reason"] = f"Provider setup failed: {client.last_setup_error}"
-            return {"state": state}
+        provider_name = _unique_name("provider-int-a")
+        if not client.setup(playlist_url=simulator.playlist_url, provider_name=provider_name):
+            # Immediately after a suite deployment, an old provider refresh
+            # can still be relinquishing the just-reused simulator port.
+            # Retry once only; a persistent routing or fixture failure still
+            # surfaces as a setup skip with the simulator log preserved.
+            first_error = client.last_setup_error
+            time.sleep(2.0)
+            if not client.setup(playlist_url=simulator.playlist_url, provider_name=f"{provider_name}-retry"):
+                state["reason"] = (
+                    f"Provider setup failed after one retry: first={first_error}; "
+                    f"retry={client.last_setup_error}"
+                )
+                return {"state": state}
         if not client.profile_id:
             state["reason"] = "Provider setup did not return an active profile"
             return {"state": state}
