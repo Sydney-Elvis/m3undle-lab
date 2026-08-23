@@ -11,6 +11,7 @@ doesn't hide a pass in the other.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -136,7 +137,12 @@ def setup(base_url: str) -> dict[str, object]:
             state["reason"] = client.last_setup_error or "Setup sequence failed"
             return {"state": state}
 
+        # A short grace period after each reset -- the original script's own timing --
+        # gives M3Undle time to actually clear cooldown/session state before the next
+        # scenario starts; without it STREAM-LIMIT-02 can see stale state from
+        # STREAM-LIMIT-01 (confirmed for real: ClientA got a stale 503).
         client.reset_debug_state()
+        time.sleep(1)
         urls = client.get_stream_urls()
         if len(urls) < 3:
             state["reason"] = f"need >= 3 stream urls, found {len(urls)}"
@@ -144,6 +150,7 @@ def setup(base_url: str) -> dict[str, object]:
 
         _run_scenario_1(collector, urls[0], urls[1], urls[2])
         client.reset_debug_state()
+        time.sleep(1)
         _run_scenario_2(collector, urls[0], urls[1], urls[2])
 
         if client.provider_id:
