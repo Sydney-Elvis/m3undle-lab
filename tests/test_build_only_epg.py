@@ -128,6 +128,17 @@ def build_epg_01(ctx: Any, base_url: str, state: dict[str, object]) -> None:
         ctx.fail("BUILD-EPG-01", f"EPG source ID missing from response: {body}")
         return
 
+    # Creating a source only registers it -- its XMLTV content isn't cached until this
+    # explicit fetch runs. Without it, build-only (which deliberately does not re-fetch)
+    # has nothing new cached to carry forward, so the guide stays empty regardless of the
+    # regression this case is actually meant to cover. Neither the frozen script nor an
+    # earlier version of this port called this endpoint, which is why BUILD-EPG-01 was
+    # failing for a reason unrelated to the bug it's supposed to catch.
+    fetch_status, fetch_body = client.post(f"/api/v1/epg/sources/{source_id}/fetch")
+    if fetch_status not in (200, 201):
+        ctx.fail("BUILD-EPG-01", f"EPG source fetch failed: status={fetch_status} body={fetch_body!r}")
+        return
+
     try:
         client.build_snapshot()
     except RuntimeError as exc:
