@@ -372,10 +372,29 @@ def bkr_04(ctx: Any, base_url: str, state: dict[str, object]) -> None:
     stage_status, staged = client.post("/api/v1/restore/stage", {"fileName": uploaded_name}, timeout=120.0)
     started_at = container_started_at(CONTAINER_NAME)
     confirm_status, _ = client.post("/api/v1/restore/confirm")
-    restarted = confirm_status == 200 and wait_for_restart(CONTAINER_NAME, started_at) and wait_up(base_url, CONTAINER_NAME, health_paths=("/livez", "/health"))
-    status, restore_status = client.get("/api/v1/restore/status") if restarted else (0, {})
-    restored = upload_status == 200 and isinstance(uploaded, dict) and uploaded.get("valid") is True and stage_status == 200 and isinstance(staged, dict) and staged.get("success") is True and restarted and status == 200 and isinstance(restore_status, dict) and restore_status.get("state") == "Completed"
-    ctx.record("BKR-04", restored, f"upload={upload_status} stage={stage_status} confirm={confirm_status} status={restore_status}")
+    restart_detected = confirm_status == 200 and wait_for_restart(CONTAINER_NAME, started_at)
+    healthy = restart_detected and wait_up(base_url, CONTAINER_NAME, health_paths=("/livez", "/health"))
+    status, restore_status = client.get("/api/v1/restore/status") if healthy else (0, {})
+    restored = (
+        upload_status == 200
+        and isinstance(uploaded, dict)
+        and uploaded.get("valid") is True
+        and stage_status == 200
+        and isinstance(staged, dict)
+        and staged.get("success") is True
+        and healthy
+        and status == 200
+        and isinstance(restore_status, dict)
+        and restore_status.get("state") == "Completed"
+    )
+    ctx.record(
+        "BKR-04",
+        restored,
+        f"upload={upload_status} valid={uploaded.get('valid') if isinstance(uploaded, dict) else None} "
+        f"stage={stage_status} staged={staged.get('success') if isinstance(staged, dict) else None} "
+        f"confirm={confirm_status} restart_detected={restart_detected} healthy={healthy} "
+        f"restore_status={status}:{restore_status}",
+    )
     state["restored"] = restored
 
 
