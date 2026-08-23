@@ -19,6 +19,7 @@ from . import clients as _clients  # noqa: F401 - class decorators register prod
 
 
 DEFAULT_REPO_URL = "https://github.com/Sydney-Elvis/M3Undle.git"
+DEFAULT_GHCR_IMAGE = "ghcr.io/sydney-elvis/m3undle"
 SERVICE = "m3undle"
 CONTAINER_NAME = "m3undle-lab"
 HOST_OVERRIDE = Path(__file__).resolve().parents[1] / "docker-config" / "m3undle-host-network.override.yaml"
@@ -113,9 +114,14 @@ def _configure_build(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--local", action="store_true", help="Build the existing cached M3Undle checkout without fetching")
 
 
+def _configure_pull(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("tag", help="Published release tag to pull (e.g. v1.0.0-beta.9)")
+
+
 def _configure_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("target", nargs="?", help="Optional source branch or tag to build before running")
     parser.add_argument("--local", action="store_true", help="Build the existing cached checkout without fetching")
+    parser.add_argument("--pull", metavar="TAG", help="Pull a published GHCR release tag instead of building from source")
     parser.add_argument("--fresh", action="store_true", help="Reset only M3Undle's SQLite database before running")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--only", metavar="SUITE", help="Run one registered suite by name")
@@ -163,6 +169,28 @@ def handle_build(args: argparse.Namespace, config: object) -> int:
     image = _build(args.target, local=args.local)
     _host_compose_up()
     print(f"M3Undle image {image} built, deployed, and healthy.", flush=True)
+    return 0
+
+
+def _pull(tag: str) -> str:
+    """Pull the actual published GHCR image for a release tag, rather than building
+    from source at that tag's commit (what `build`/`run <tag>` do) -- the two can
+    diverge (a platform-specific build issue, a broken publish step, drift between
+    what got tagged and what CI actually built), so this is a distinct verb, not an
+    alternate path to the same result."""
+    ghcr_image = lab_common.resolve_setting("M3UNDLE_GHCR_IMAGE", default=DEFAULT_GHCR_IMAGE) or DEFAULT_GHCR_IMAGE
+    image = f"{ghcr_image}:{tag}"
+    lab_common.docker_pull(image)
+    lab_common.sync_runtime_compose()
+    lab_common.set_deployment_metadata("published-tag", tag, image=image)
+    return image
+
+
+@registry.command("pull", help="Pull and deploy a published GHCR release tag", configure=_configure_pull)
+def handle_pull(args: argparse.Namespace, config: object) -> int:
+    image = _pull(args.tag)
+    _host_compose_up()
+    print(f"M3Undle image {image} pulled, deployed, and healthy.", flush=True)
     return 0
 
 
@@ -215,8 +243,12 @@ def _run_selected_suites(suites: list[Suite]) -> bool:
 
 
 def _validate_run_options(args: argparse.Namespace) -> None:
-    if args.no_deploy and args.target:
-        raise SystemExit("A source target cannot be used with --no-deploy.")
+    if args.target and args.pull:
+        raise SystemExit("A source target and --pull are mutually exclusive.")
+    if args.pull and args.local:
+        raise SystemExit("--pull cannot be combined with --local.")
+    if args.no_deploy and (args.target or args.pull):
+        raise SystemExit("A source target or --pull cannot be used with --no-deploy.")
     if args.no_deploy and args.fresh:
         raise SystemExit("--fresh recreates M3Undle, so it cannot be used with --no-deploy.")
     if args.deploy_only and (args.only or args.test_group):
@@ -226,7 +258,10 @@ def _validate_run_options(args: argparse.Namespace) -> None:
 @registry.command("run", help="Deploy or reuse M3Undle, verify health, and optionally run registered suites", configure=_configure_run)
 def handle_run(args: argparse.Namespace, config: object) -> int:
     _validate_run_options(args)
-    if not args.no_deploy and args.target:
+    if not args.no_deploy and args.pull:
+        _pull(args.pull)
+        _host_compose_up()
+    elif not args.no_deploy and args.target:
         _build(args.target, local=args.local)
         _host_compose_up()
     elif args.fresh:

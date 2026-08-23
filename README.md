@@ -31,12 +31,31 @@ srv1/srv2 dispatch.
 
 ## Current migration slice
 
-The initial lifecycle commands are `build`, `run`, `recreate`, `status`, and se-lab's
-generic `down`. `lab run` now executes every registered suite by default; use
-`--test-group` or `--only` to narrow that selection, and `--deploy-only` when an
-update should stop after health verification. `tests/test_auth_gate.py` is the first
-migrated suite: its registered `AUTH-01` through `AUTH-07` cases (plus deterministic
-restoration) can be run with:
+The lifecycle commands are `build`, `pull`, `run`, `recreate`, `status`, and se-lab's
+generic `down` — these bring up M3Undle itself (the product under test). `clients` is a
+separate concept: the third-party downstream apps (Jellyfin, NextPVR) that consume
+M3Undle's output, not M3Undle itself — see the "Provider simulator" section below and
+`./lab clients --help`.
+
+`build <ref>`/`run <ref>` build from source: `<ref>` is resolved as a tag first, then a
+branch, so `./lab run main`, `./lab run mybranch`, and `./lab run v1.0.0-beta.9` all work
+the same way. `pull <tag>`/`run --pull <tag>` instead pull the actual published GHCR image
+for a release tag — a real, distinct check from building at that tag's commit, since the
+two can diverge (a platform-specific build issue, a broken publish step). A typical release
+flow:
+
+```bash
+./lab run mybranch              # branch under development
+# ... merge to main ...
+./lab run main                  # re-verify against main
+# ... tag and let CI publish ...
+./lab run --pull v1.0.0-beta.9  # final check against the actual published artifact
+```
+
+`lab run` executes every registered suite by default; use `--test-group` or `--only` to
+narrow that selection, and `--deploy-only` when an update should stop after health
+verification. `tests/test_auth_gate.py` is the first migrated suite: its registered
+`AUTH-01` through `AUTH-07` cases (plus deterministic restoration) can be run with:
 
 ```bash
 ./lab run --fresh --only auth-gate
