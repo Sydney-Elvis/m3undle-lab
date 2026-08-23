@@ -19,8 +19,7 @@ git submodule update --init
 
 cp lab.env.example lab.env
 # Set M3UNDLE_HDHR_ADVERTISED_BASE_URL to this host's LAN address.
-./lab build main
-./lab run --fresh
+./lab up main
 ./lab status
 ./lab down
 ```
@@ -31,18 +30,31 @@ srv1/srv2 dispatch.
 
 ## Current migration slice
 
-The lifecycle commands are `build`, `pull`, `run`, `recreate`, `status`, and se-lab's
+The lifecycle commands are `build`, `pull`, `up`, `run`, `recreate`, `status`, and se-lab's
 generic `down` — these bring up M3Undle itself (the product under test). `clients` is a
 separate concept: the third-party downstream apps (Jellyfin, NextPVR) that consume
 M3Undle's output, not M3Undle itself — see the "Provider simulator" section below and
 `./lab clients --help`.
 
-`build <ref>`/`run <ref>` build from source: `<ref>` is resolved as a tag first, then a
-branch, so `./lab run main`, `./lab run mybranch`, and `./lab run v1.0.0-beta.9` all work
-the same way. `pull <tag>`/`run --pull <tag>` instead pull the actual published GHCR image
-for a release tag — a real, distinct check from building at that tag's commit, since the
-two can diverge (a platform-specific build issue, a broken publish step). A typical release
-flow:
+`build`/`up`/`run` share one build/deploy path: `<ref>` is resolved as a tag first, then a
+branch, so `./lab up main`, `./lab up mybranch`, and `./lab up v1.0.0-beta.9` all work the
+same way. `pull <tag>`/`up --pull <tag>`/`run --pull <tag>` instead pull the actual
+published GHCR image for a release tag — a real, distinct check from building at that tag's
+commit, since the two can diverge (a platform-specific build issue, a broken publish step).
+
+`up` and `run` are two different jobs, not two names for the same thing:
+
+- `up [ref] [--pull TAG] [--local]` builds/pulls if given a target (or reuses the currently
+  deployed image if not), deploys, health-checks, and **leaves M3Undle running** — for manual,
+  hands-on testing. Pair it with `./lab down` when you're done.
+- `run [ref] [--pull TAG] [--local] [--no-deploy] [--only X] [--test-group G] [--keep]` is
+  **only** about automated testing: deploys fresh, runs the selected suites, and always tears
+  down afterward — pass or fail — unless `--keep`. `--no-deploy` reruns against the currently
+  deployed image instead of rebuilding, but still redeploys fresh, still runs suites, and
+  still tears down.
+
+A typical release flow, each step left running only long enough to check it, then torn down
+by `run` itself:
 
 ```bash
 ./lab run mybranch              # branch under development
@@ -53,16 +65,18 @@ flow:
 ```
 
 `lab run` executes every registered suite by default; use `--test-group` or `--only` to
-narrow that selection, and `--deploy-only` when an update should stop after health
-verification. `tests/test_auth_gate.py` is the first migrated suite: its registered
+narrow that selection. `tests/test_auth_gate.py` is the first migrated suite: its registered
 `AUTH-01` through `AUTH-07` cases (plus deterministic restoration) can be run with:
 
 ```bash
 ./lab run --fresh --only auth-gate
 # Future ports may be selected as a group, for example:
 ./lab run --test-group core
-# Or deploy a known image without executing suites:
-./lab run --deploy-only
+# Or leave it running afterward to inspect a failure:
+./lab run --only auth-gate --keep
+# Or bring an instance up for manual testing instead of running suites at all:
+./lab up main
+./lab down
 ```
 
 Jellyfin and NextPVR are registered as manual-only client plugins (no automated `verify()` —
