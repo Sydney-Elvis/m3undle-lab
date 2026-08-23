@@ -427,10 +427,28 @@ def bkr_06(ctx: Any, state: dict[str, object]) -> None:
     if ready is None or not _prior_ok(ctx, state, "BKR-06", "restored"):
         return
     client, _ = ready
-    status, lineup = client.download_bytes("/m3u/m3undle.m3u", timeout=60.0)
-    text = lineup.decode("utf-8", errors="replace")
-    valid = status == 200 and "Channel 101 (Provider A)" in text and "Channel 102 (Provider A)" in text and "Channel 103 (Provider A)" not in text and "Restored Sports" in text
-    ctx.record("BKR-06", valid, f"restored M3U status={status} has expected mapped channels")
+    profile_id = state.get("profile_id")
+    if not isinstance(profile_id, str):
+        ctx.skip("BKR-06", "Skipped because the restored profile identifier was unavailable")
+        return
+    try:
+        # Full restores bring back persisted configuration, not the in-memory
+        # active snapshot. Rebuild before checking the restored public output.
+        client.build_snapshot()
+        if not client.poll_build_completion(profile_id):
+            raise RuntimeError("Post-restore snapshot build did not complete")
+        status, lineup = client.download_bytes("/m3u/m3undle.m3u", timeout=60.0)
+        text = lineup.decode("utf-8", errors="replace")
+        valid = (
+            status == 200
+            and "Channel 101 (Provider A)" in text
+            and "Channel 102 (Provider A)" in text
+            and "Channel 103 (Provider A)" not in text
+            and "Restored Sports" in text
+        )
+        ctx.record("BKR-06", valid, f"restored M3U status={status} has expected mapped channels")
+    except Exception as exc:
+        ctx.fail("BKR-06", str(exc))
 
 
 @SUITE.case("BKR-07")
