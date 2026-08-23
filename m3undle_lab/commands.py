@@ -10,7 +10,7 @@ from pathlib import Path
 from agent import common as lab_common, registry
 from agent.container import wait_up
 from agent.results import RunContext
-from agent.suites import discover_suites, run_suite
+from agent.suites import Suite, discover_suites, run_suite, suites_in_group
 
 from .analysis import M3UndleAnalysis
 from .database import M3UndleDatabase
@@ -115,8 +115,12 @@ def _configure_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("target", nargs="?", help="Optional source branch or tag to build before running")
     parser.add_argument("--local", action="store_true", help="Build the existing cached checkout without fetching")
     parser.add_argument("--fresh", action="store_true", help="Reset only M3Undle's SQLite database before running")
-    parser.add_argument("--only", help="Run one registered suite by name after readiness succeeds")
-    parser.add_argument("--no-deploy", action="store_true", help="Use the already-running M3Undle stack")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--only", metavar="SUITE", help="Run one registered suite by name")
+    selection.add_argument("--test-group", metavar="GROUP", help="Run a registered suite group (default: all)")
+    deployment = parser.add_mutually_exclusive_group()
+    deployment.add_argument("--no-deploy", action="store_true", help="Use the already-running M3Undle stack")
+    deployment.add_argument("--deploy-only", action="store_true", help="Deploy or recreate M3Undle but do not run suites")
 
 
 def _configure_recreate(parser: argparse.ArgumentParser) -> None:
@@ -170,8 +174,56 @@ def handle_recreate(args: argparse.Namespace, config: object) -> int:
     return 0
 
 
+def _select_suites(suites: list[Suite], *, only: str | None, test_group: str | None) -> list[Suite]:
+    if only:
+        selected = [suite for suite in suites if suite.name == only]
+        if selected:
+            return selected
+        available = ", ".join(suite.name for suite in suites) or "(none)"
+        raise SystemExit(f"Unknown suite {only!r}. Available: {available}")
+
+    group = test_group or "all"
+    selected = suites_in_group(suites, group)
+    if selected:
+        return selected
+    available = ", ".join(sorted({suite.group for suite in suites})) or "(none)"
+    raise SystemExit(f"Unknown or empty suite group {group!r}. Available groups: all, {available}")
+
+
+def _run_selected_suites(suites: list[Suite]) -> bool:
+    """Run each registered suite in discovery order and preserve every suite artifact."""
+    failed = False
+    results_dir = lab_common.runtime_results_dir()
+    for suite in suites:
+        print(f"\n--- Running suite: {suite.name} ---", flush=True)
+        context = RunContext(suite.name)
+        result = run_suite(suite, context, base_url=_base_url())
+        context.print_summary()
+        context.write_json(results_dir / f"results-{suite.name}.json")
+        if not result.setup_ok:
+            print(f"  Setup failed: {result.setup_error}", flush=True)
+        if context.failed_count or result.drifted or not result.setup_ok:
+            failed = True
+        if result.drifted:
+            print(
+                f"  Result drift: expected {result.expected} registered cases, recorded {result.actual} outcomes.",
+                flush=True,
+            )
+    return failed
+
+
+def _validate_run_options(args: argparse.Namespace) -> None:
+    if args.no_deploy and args.target:
+        raise SystemExit("A source target cannot be used with --no-deploy.")
+    if args.no_deploy and args.fresh:
+        raise SystemExit("--fresh recreates M3Undle, so it cannot be used with --no-deploy.")
+    if args.deploy_only and (args.only or args.test_group):
+        raise SystemExit("--deploy-only cannot be combined with --only or --test-group.")
+
+
 @registry.command("run", help="Deploy or reuse M3Undle, verify health, and optionally run registered suites", configure=_configure_run)
 def handle_run(args: argparse.Namespace, config: object) -> int:
+    _validate_run_options(args)
     if not args.no_deploy and args.target:
         _build(args.target, local=args.local)
         _host_compose_up()
@@ -184,19 +236,12 @@ def handle_run(args: argparse.Namespace, config: object) -> int:
     else:
         _wait_healthy()
 
-    if not args.only:
-        print("M3Undle is healthy.", flush=True)
+    if args.deploy_only:
+        print("M3Undle is healthy; suite execution skipped (--deploy-only).", flush=True)
         return 0
 
-    selected = [suite for suite in discover_suites(TESTS_DIR) if suite.name == args.only]
-    if not selected:
-        raise SystemExit(f"Unknown suite {args.only!r}. Available: {', '.join(s.name for s in discover_suites(TESTS_DIR))}")
-    suite = selected[0]
-    context = RunContext(suite.name)
-    result = run_suite(suite, context, base_url=_base_url())
-    context.print_summary()
-    context.write_json(lab_common.runtime_results_dir() / f"results-{suite.name}.json")
-    return 1 if context.failed_count or result.drifted else 0
+    selected = _select_suites(discover_suites(TESTS_DIR), only=args.only, test_group=args.test_group)
+    return 1 if _run_selected_suites(selected) else 0
 
 
 @registry.command("status", help="Show M3Undle Compose state and HTTP health", configure=_configure_status)

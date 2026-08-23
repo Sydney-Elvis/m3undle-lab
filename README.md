@@ -32,11 +32,18 @@ srv1/srv2 dispatch.
 ## Current migration slice
 
 The initial lifecycle commands are `build`, `run`, `recreate`, `status`, and se-lab's
-generic `down`. `tests/test_auth_gate.py` is the first migrated suite: its registered
-`AUTH-01` through `AUTH-07` cases (plus deterministic restoration) can be run with:
+generic `down`. `lab run` now executes every registered suite by default; use
+`--test-group` or `--only` to narrow that selection, and `--deploy-only` when an
+update should stop after health verification. `tests/test_auth_gate.py` is the first
+migrated suite: its registered `AUTH-01` through `AUTH-07` cases (plus deterministic
+restoration) can be run with:
 
 ```bash
 ./lab run --fresh --only auth-gate
+# Future ports may be selected as a group, for example:
+./lab run --test-group core
+# Or deploy a known image without executing suites:
+./lab run --deploy-only
 ```
 
 Jellyfin and NextPVR are registered as manual-only client plugins. `lab clients` deployment,
