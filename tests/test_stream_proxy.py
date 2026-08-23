@@ -207,6 +207,24 @@ def _run_hls_cap_01(ctx: _RecordCollector, client: M3UndleClient, stream_urls: l
         ctx.record("HLS-CAP-01", False, "Could not resolve Xtream stream IDs for channels B and C")
         return
 
+    # The M3U (and the direct stream paths it publishes) is itself gated once
+    # endpoint-security is on -- established pattern from test_security.py/test_xtream.py
+    # is the credentialed query string. Must re-fetch here rather than reuse the
+    # unauthenticated `stream_urls` captured before auth was enabled, or channel A's
+    # direct URL 401s.
+    _, authed_m3u = client.get(f"/m3u/m3undle.m3u?username={XTREAM_USER}&password={XTREAM_PASS}")
+    authed_m3u_text = authed_m3u if isinstance(authed_m3u, str) else ""
+    known_paths = ("/stream/", "/live/", "/tune/", "/hdhr/tune/")
+    authed_stream_urls = [
+        line.strip()
+        for line in authed_m3u_text.splitlines()
+        if line.startswith("http") and any(p in line for p in known_paths)
+    ]
+    if not authed_stream_urls:
+        client._request("PUT", "/api/v1/settings/endpoint-security", body={"enabled": False})
+        ctx.record("HLS-CAP-01", False, "No stream URLs in the authenticated M3U for channel A")
+        return
+
     xtream_url_b = f"{m3undle_base}/live/{XTREAM_USER}/{XTREAM_PASS}/{stream_id_b}.ts"
     xtream_url_c = f"{m3undle_base}/live/{XTREAM_USER}/{XTREAM_PASS}/{stream_id_c}.ts"
 
@@ -229,9 +247,9 @@ def _run_hls_cap_01(ctx: _RecordCollector, client: M3UndleClient, stream_urls: l
             opened.append(False)
             errors.append(f"client-{idx}: {exc}")
 
-    # Channel A: direct M3U stream URL. Channel B: Xtream path-credential stream URL.
+    # Channel A: direct M3U stream URL (authenticated). Channel B: Xtream path-credential URL.
     threads = [
-        threading.Thread(target=hold_stream, args=(stream_urls[0], 0), daemon=True),
+        threading.Thread(target=hold_stream, args=(authed_stream_urls[0], 0), daemon=True),
         threading.Thread(target=hold_stream, args=(xtream_url_b, 1), daemon=True),
     ]
     for t in threads:
