@@ -113,13 +113,21 @@ def wait_for_event(m3undle_url: str, kind: int, timeout_seconds: float = 20.0) -
 
 
 def read_and_close(url: str, read_bytes: int = 1024) -> int:
+    """requests.get() (the frozen script's original) never raises on a non-2xx
+    status; urllib.request.urlopen() raises HTTPError instead, so that has to
+    be caught here too, not just in the streaming helpers -- confirmed for
+    real: an un-caught 503 crashed this scenario instead of being asserted on."""
+    import urllib.error
     import urllib.request
 
-    with urllib.request.urlopen(urllib.request.Request(url), timeout=20.0) as resp:
-        status = resp.status
-        if status == 200:
-            resp.read(read_bytes)
-        return status
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=20.0) as resp:
+            if resp.status == 200:
+                resp.read(read_bytes)
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        exc.read()
+        return exc.code
 
 
 def read_until_timeout_or_close(url: str, timeout_seconds: float = 40.0) -> int | None:
