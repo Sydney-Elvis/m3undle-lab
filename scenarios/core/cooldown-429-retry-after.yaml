@@ -1,0 +1,29 @@
+schema_version: 1
+minimum_engine_version: 0.1.0
+
+name: cooldown-429-retry-after
+description: >
+  Provider returns a persistent HTTP 429 with Retry-After: 20. Migrated
+  from fixtures/providers/provider-cooldown-429.json (Stage A5 exit gate:
+  existing M3Undle tests use scenario files).
+
+provider:
+  name: provider-cooldown-429
+  max_streams: 4
+  defaults:
+    chunk_count: 300
+    chunk_interval_ms: 100
+    startup_delay_ms: 0
+    failure_mode: none
+    payload: provider-cooldown-stream
+  channels:
+    channel-429:
+      display_name: Cooldown 429 Channel
+      group_title: Sim-Failures
+      tvg_id: channel-429
+      failure_mode: http_error
+      failure_status_code: 429
+      retry_after_seconds: 20
+      payload: provider-cooldown-429
+
+sequence: []

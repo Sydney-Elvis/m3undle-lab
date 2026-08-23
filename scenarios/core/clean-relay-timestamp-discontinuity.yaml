@@ -1,0 +1,46 @@
+schema_version: 1
+minimum_engine_version: 0.2.0
+
+name: clean-relay-timestamp-discontinuity
+description: >
+  A single, uninterrupted clean-remux FFmpeg relay connection whose upstream
+  serves fixtures/synthetic/clean-relay-timestamp-discontinuity.ts (from the
+  public simulator repo) -- a real TSDuck-produced, verified (ffprobe +
+  pcrextract) unsignaled backward PTS/DTS jump of ~4.92s at packet 6000,
+  with PCR left deliberately continuous through the same point. Unlike
+  CLEAN-RELAY-05, there is no reconnect trigger at all -- the rewind is
+  baked directly into the file's timeline mid-connection. This proves
+  M3Undle's rewind detection also works on a mid-connection,
+  non-reconnect-triggered, PCR-continuous fault, structurally different
+  from a reconnect-triggered replay.
+
+provider:
+  name: proto-clean-relay-timestamp-discontinuity
+  max_streams: 4
+  channels:
+    clean-relay-timestamp-discontinuity:
+      display_name: Clean Relay Timestamp Discontinuity
+      group_title: Sim-Clean-Relay
+      tvg_id: clean-relay-timestamp-discontinuity
+      content_type: video/MP2T
+      payload_mode: file
+      payload_file: fixtures/synthetic/clean-relay-timestamp-discontinuity.ts
+      payload_chunk_bytes: 1316
+      chunk_interval_ms: 20
+      # This fixture is clean-relay-loop-long.ts (3,481,948 bytes, 30.021s) with the tail
+      # half's video PTS/DTS spliced ~4.92s backward at byte offset 1,128,000 (packet
+      # 6000) -- see fixtures/synthetic/README.md on the simulator engine repo. The
+      # previous chunk_count of 1200 (1,579,200 bytes, only 45% of the file) starved the
+      # scenario of runway: live, the rewind fires around chunk_interval_ms=20 pacing's
+      # ~8-9s mark, the clamped-DTS-ramp hold can legitimately take close to
+      # ClampedDtsRampHoldLimit (default 6s) to resolve, and FFmpeg's own
+      # -reconnect_at_eof was firing on the truncated fixture before recovery finished --
+      # producing a real (if unintended) second provider connection that broke this
+      # scenario's "no reconnect trigger" premise, independent of any recovery-side bug.
+      # Must stay at or below floor(3,481,948 / 1316) = 2646, or the sim's byte-modulo
+      # playback wraps this connection back to byte zero mid-stream -- an unintended
+      # second rewind on top of the one this scenario is actually testing, and (per
+      # ChannelStreamSession's clamped-DTS-ramp detector) a permanent rather than
+      # transient ramp. See the same note in clean-relay-inprocess-replay.yaml.
+      chunk_count: 2600
+      failure_mode: none

@@ -1,0 +1,28 @@
+schema_version: 1
+minimum_engine_version: 0.1.0
+
+name: cooldown-407-no-retry-after
+description: >
+  Provider returns a persistent HTTP 407 with no Retry-After header.
+  Migrated from fixtures/providers/provider-cooldown-407.json (Stage A5
+  exit gate: existing M3Undle tests use scenario files).
+
+provider:
+  name: provider-cooldown-407
+  max_streams: 4
+  defaults:
+    chunk_count: 300
+    chunk_interval_ms: 100
+    startup_delay_ms: 0
+    failure_mode: none
+    payload: provider-cooldown-stream
+  channels:
+    channel-407:
+      display_name: Cooldown 407 Channel
+      group_title: Sim-Failures
+      tvg_id: channel-407
+      failure_mode: http_error
+      failure_status_code: 407
+      payload: provider-cooldown-407
+
+sequence: []

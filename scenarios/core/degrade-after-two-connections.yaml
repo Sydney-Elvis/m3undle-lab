@@ -1,0 +1,32 @@
+schema_version: 1
+minimum_engine_version: 0.1.0
+
+name: degrade-after-two-connections
+description: >
+  Channel serves cleanly for the first two client connections, then
+  degrades to HTTP 503 from the third connection onward. Exercises a
+  count-triggered mid-sequence action (Stage A5 prototype) rather than a
+  purely duration-based one.
+
+provider:
+  name: proto-degrade
+  max_streams: 4
+  channels:
+    channel-degrade:
+      display_name: Degrade After Two
+      group_title: Sim-Prototype
+      failure_mode: none
+
+sequence:
+  - action: set_channel_behavior
+    channel: channel-degrade
+    trigger:
+      after:
+        connections: 2
+    failure_mode: http_error
+    failure_status_code: 503
+
+expected_simulator_events:
+  - stream_opened
+  - stream_opened
+  - channel_override_changed

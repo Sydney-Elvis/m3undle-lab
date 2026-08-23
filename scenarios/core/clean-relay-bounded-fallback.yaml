@@ -1,0 +1,51 @@
+schema_version: 1
+minimum_engine_version: 0.2.0
+
+name: clean-relay-bounded-fallback
+description: >
+  A direct-relay (clean_relay_mode=off, no FFmpeg at all) channel whose
+  upstream HTTP connection closes deep into the file's timeline, then
+  restarts playback from byte zero on the fresh connection. Because there
+  is no FFmpeg muxer between the provider and M3Undle, the genuine backward
+  DTS jump reaches M3Undle's own scanner unclamped -- unlike
+  CLEAN-RELAY-05's remux path, where the muxer always clamps it into a
+  forward ramp instead (see ReconnectOptions.cs's own doc comment).
+  M3Undle's own outer reconnect (visible, unlike the hidden
+  FFmpeg-internal case in CLEAN-RELAY-05) handles reconnecting; the replay
+  gap is deep enough into the file that scanning it at real streaming pace
+  exceeds the default 6s RecoveryOverlapTrimHoldLimit, so the overlap trim
+  should be abandoned (RecoveryOverlapTrimAbandoned, kind 30) rather than
+  complete -- the first real-process coverage of that diagnostic.
+
+provider:
+  name: proto-clean-relay-bounded-fallback
+  max_streams: 4
+  channels:
+    clean-relay-bounded-fallback:
+      display_name: Clean Relay Bounded Fallback
+      group_title: Sim-Clean-Relay
+      tvg_id: clean-relay-bounded-fallback
+      content_type: video/MP2T
+      payload_mode: file
+      payload_file: fixtures/media/clean-relay-loop-long.ts
+      payload_chunk_bytes: 1316
+      failure_mode: close_after_chunks
+      chunk_interval_ms: 11
+      # ~10s in at 11ms/chunk * 910 chunks -- deep enough into the 30s file
+      # that scanning the replay back to this position at real streaming
+      # pace exceeds the default 6s RecoveryOverlapTrimHoldLimit, so the
+      # trim should abandon rather than complete.
+      failure_after_chunks: 910
+      # Must stay at or below floor(3,481,948 / 1316) = 2646, or the sim's byte-modulo
+      # playback wraps this connection back to byte zero mid-stream -- an unintended
+      # second rewind on top of the one this scenario is actually testing. See the same
+      # note in clean-relay-inprocess-replay.yaml.
+      chunk_count: 2600
+
+sequence:
+  - action: set_channel_behavior
+    channel: clean-relay-bounded-fallback
+    trigger:
+      after:
+        connections: 1
+    failure_mode: none

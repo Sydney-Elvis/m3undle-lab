@@ -1,0 +1,27 @@
+schema_version: 1
+minimum_engine_version: 0.1.0
+
+name: cooldown-transport
+description: >
+  Provider disconnects before sending response headers (transport-level
+  failure). Migrated from fixtures/providers/provider-cooldown-transport.json
+  (Stage A5 exit gate: existing M3Undle tests use scenario files).
+
+provider:
+  name: provider-cooldown-transport
+  max_streams: 4
+  defaults:
+    chunk_count: 300
+    chunk_interval_ms: 100
+    startup_delay_ms: 0
+    failure_mode: none
+    payload: provider-cooldown-stream
+  channels:
+    channel-transport:
+      display_name: Cooldown Transport Channel
+      group_title: Sim-Failures
+      tvg_id: channel-transport
+      failure_mode: disconnect_before_headers
+      payload: provider-cooldown-transport
+
+sequence: []

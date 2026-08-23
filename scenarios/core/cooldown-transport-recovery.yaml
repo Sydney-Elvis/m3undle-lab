@@ -1,0 +1,28 @@
+schema_version: 1
+minimum_engine_version: 0.1.0
+
+name: cooldown-transport-recovery
+description: >
+  Upstream transport failure, then the provider recovers mid-scenario.
+  Exercises a duration-based trigger (Stage A5 prototype), complementing
+  the connection-count trigger in degrade-after-two-connections.yaml.
+
+provider:
+  name: proto-cooldown-transport
+  max_streams: 4
+  channels:
+    channel-transport:
+      display_name: Cooldown Transport Channel
+      group_title: Sim-Prototype
+      failure_mode: disconnect_before_headers
+
+sequence:
+  - action: set_channel_behavior
+    channel: channel-transport
+    trigger:
+      after:
+        seconds: 2
+    failure_mode: none
+
+expected_simulator_events:
+  - channel_override_changed

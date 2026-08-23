@@ -1,0 +1,75 @@
+schema_version: 1
+minimum_engine_version: 0.2.0
+
+name: clean-relay-inprocess-replay
+description: >
+  A clean-remux FFmpeg relay channel whose upstream HTTP connection closes
+  once, early in the file's timeline. FFmpeg's own internal reconnect
+  (invisible to M3Undle's outer session-level reconnect) re-requests the
+  same URL, and because file playback always restarts at byte zero on a
+  fresh connection, the provider appears to "replay" from the start -- a
+  real in-process timeline rewind, hidden from M3Undle behind FFmpeg's
+  reconnect. Reimplements the spirit of the reverted ce00686 commit's
+  CLEAN-RELAY-05 scenario, natively in the Stage A5 scenario format, for
+  validation against feature/continuous-stream-test's clamped-DTS-ramp
+  detection.
+
+provider:
+  name: proto-clean-relay-inprocess-replay
+  max_streams: 4
+  channels:
+    clean-relay-inprocess-replay:
+      display_name: Clean Relay In-Process Replay
+      group_title: Sim-Clean-Relay
+      tvg_id: clean-relay-inprocess-replay
+      content_type: video/MP2T
+      payload_mode: file
+      # clean-relay-loop.ts (3.02s) is too short for this scenario: live
+      # testing showed M3Undle's DetectInProcessTimelineRewind doesn't fire
+      # until ~452 KiB (~4.4s at this content's bitrate) has streamed since
+      # reconnect, and the 3s RecoveryOutputHoldLimit only starts counting
+      # after that -- the short file was looping more than once before
+      # detection even began. This longer asset (30s, see
+      # fixtures/media/README.md) gives both phases room to complete
+      # within a single pass.
+      payload_file: fixtures/media/clean-relay-loop-long.ts
+      payload_chunk_bytes: 1316
+      failure_mode: close_after_chunks
+      # close_after_chunks re-triggers on every fresh connection (chunk_index
+      # resets to 0 each time), so leaving it in place would make FFmpeg's
+      # own reconnect hit the same wall over and over -- confirmed live,
+      # this produced 177 provider connections and recovery never completed.
+      # The sequence override below removes the fault after the first
+      # connection so only that one close happens.
+      #
+      # ~928 kbps content (ffprobe-confirmed); pacing at its natural rate
+      # (~11.35ms/chunk for 1316-byte chunks) rather than bursting it in
+      # faster is the configuration that gave M3Undle's recovery logic a
+      # realistic, fairly-timed window in live testing.
+      chunk_interval_ms: 11
+      # ~495ms in (45 chunks at 11ms) -- enough margin for the
+      # connections:1 trigger's 100ms poll to apply its override before
+      # this first connection closes (same race documented in item 12/
+      # TS-SAFE-03).
+      failure_after_chunks: 45
+      # Covers the full ~7-8s needed (detection + recovery) with wide margin,
+      # without looping back to byte zero on its own. clean-relay-loop-long.ts is
+      # 3,481,948 bytes = 2646.6 chunks of 1316 bytes, so anything above 2646
+      # wraps the sim's byte-modulo playback back to byte zero *inside* one
+      # connection. That is not a harmless extra loop: FFmpeg's mpegts muxer keeps a
+      # monotonic per-stream last-DTS high-water mark, so a wrap clamps every
+      # subsequent packet to last+1 forever and the clamped ramp becomes permanent
+      # rather than transient -- exactly the condition M3Undle's recovery is trying
+      # to ride out. The previous value of 3000 (3,948,000 bytes) crossed that line
+      # at ~29s, and also contradicted this fixture's own comment and
+      # fixtures/media/README.md's "chunk_count in each consuming fixture is kept low
+      # enough that no connection loops this longer file even once".
+      chunk_count: 2600
+
+sequence:
+  - action: set_channel_behavior
+    channel: clean-relay-inprocess-replay
+    trigger:
+      after:
+        connections: 1
+    failure_mode: none

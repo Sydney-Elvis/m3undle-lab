@@ -298,12 +298,16 @@ class M3UndleClient:
         name: str,
         playlist_url: str,
         max_concurrent_streams: int = 2,
+        clean_relay_mode: str | None = None,
     ) -> dict:
-        status, body = self.post("/api/v1/providers/upsert", {
+        payload = {
             "name": name,
             "playlistUrl": playlist_url,
             "maxConcurrentStreams": max_concurrent_streams,
-        })
+        }
+        if clean_relay_mode is not None:
+            payload["cleanRelayMode"] = clean_relay_mode
+        status, body = self.post("/api/v1/providers/upsert", payload)
         if status not in (200, 201) or not isinstance(body, dict):
             raise RuntimeError(f"upsert_provider failed {status}: {body}")
         return body
@@ -363,6 +367,24 @@ class M3UndleClient:
 
     def delete_provider(self, provider_id: str) -> tuple[int, Any]:
         return self.delete(f"/api/v1/providers/{provider_id}")
+
+    def delete_provider_with_retry(self, provider_id: str, *, max_wait: float = 60.0) -> bool:
+        """Delete a single provider, retrying on 409 (a snapshot operation is
+        still in flight) until it settles -- teardown for a scenario that
+        drove its own provider outside clear_existing_providers()'s bulk
+        cleanup loop."""
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            status, body = self.delete_provider(provider_id)
+            if status in (200, 202, 204, 404):
+                return True
+            if status == 409:
+                self.wait_snapshot_idle(timeout_seconds=20.0)
+                time.sleep(1.0)
+                continue
+            print(f"Provider delete returned {status}: {body}", flush=True)
+            return False
+        return False
 
     def clear_existing_providers(self, *, timeout_seconds: float = 60.0) -> None:
         """
@@ -766,6 +788,7 @@ class M3UndleClient:
         playlist_url: str,
         provider_name: str = "provider-a-sim",
         max_concurrent_streams: int = 2,
+        clean_relay_mode: str | None = None,
         clear_providers: bool = True,
     ) -> bool:
         """
@@ -795,6 +818,7 @@ class M3UndleClient:
                 name=provider_name,
                 playlist_url=playlist_url,
                 max_concurrent_streams=max_concurrent_streams,
+                clean_relay_mode=clean_relay_mode,
             )
         except RuntimeError as exc:
             self.last_setup_error = str(exc)

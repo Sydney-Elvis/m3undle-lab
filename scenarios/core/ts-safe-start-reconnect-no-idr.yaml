@@ -1,0 +1,61 @@
+schema_version: 1
+minimum_engine_version: 0.2.0
+
+name: ts-safe-start-reconnect-no-idr
+description: >
+  First connection is a normal IDR-bearing stream (establishes a real
+  safe start), then closes and forces M3Undle to reconnect/recover. A
+  count-triggered override switches the channel to the no-IDR variant and
+  removes the fault right before that reconnect, so the recovered stream
+  serves indefinitely but never offers an IDR frame -- proving M3Undle's
+  recovery path falls back to a byte-count-based (FallbackPacketBoundary)
+  safe start instead of waiting forever for an IDR that never arrives.
+  (An initial connection that never had a safe start at all is a
+  different, narrower case and isn't what this scenario targets.)
+
+provider:
+  name: proto-ts-safe-start-no-idr
+  max_streams: 4
+  channels:
+    ts-channel-stall-no-idr:
+      display_name: TS Stall No-IDR (Reconnect Fallback)
+      group_title: Sim-TS
+      tvg_id: ts-channel-stall-no-idr
+      payload_mode: ts
+      ts_variant: idr
+      # Large enough that even at full (unthrottled) delivery speed after the
+      # override below, the connection stays open well past the point where
+      # the ~512 KiB fallback threshold is crossed -- a chunk_count that lets
+      # the stream reach a natural graceful end too soon caused M3Undle to
+      # cycle through hundreds of instant reconnects instead of ever holding
+      # one open long enough to notice the byte threshold.
+      chunk_count: 500000
+      # Slow enough (~0.5s for the first 500 packets) that the connections:1
+      # trigger's 100ms poll reliably applies its override before this first
+      # connection closes and M3Undle reconnects -- see the sequence step
+      # below, which speeds delivery back up for the reconnected stream.
+      chunk_interval_ms: 1
+      failure_mode: close_after_chunks
+      failure_after_chunks: 500
+
+sequence:
+  - action: set_channel_behavior
+    channel: ts-channel-stall-no-idr
+    trigger:
+      after:
+        connections: 1
+    failure_mode: none
+    ts_variant: no_idr
+    # M3Undle's RecoveryOutputHoldLimit caps how long it holds output waiting
+    # for a safe start during recovery at 3s, so the ~512 KiB byte-count
+    # fallback threshold must be crossed with a wide margin under that --
+    # disabling the pacing sleep for the reconnected stream delivers it in a
+    # fraction of a second instead of racing a throttled rate against the
+    # hold limit.
+    chunk_interval_ms: 0
+
+expected_simulator_events:
+  - stream_opened
+  - stream_broken
+  - channel_override_changed
+  - stream_opened
