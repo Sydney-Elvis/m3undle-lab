@@ -177,12 +177,20 @@ def _pull(tag: str) -> str:
     from source at that tag's commit (what `build`/`run <tag>` do) -- the two can
     diverge (a platform-specific build issue, a broken publish step, drift between
     what got tagged and what CI actually built), so this is a distinct verb, not an
-    alternate path to the same result."""
+    alternate path to the same result.
+
+    Uses lab_common.ghcr_tag_image() -- the same naming helper
+    agent.common.deploy_tag() uses -- rather than building the image string by
+    hand. source_type "tag" matches deploy_tag()'s own convention (as opposed to
+    "source-tag", already used by this plugin's own build() for tag-from-source),
+    so status/discover distinguish the two consistently with se-lab's generic
+    deploy_* functions, not just internally to this plugin.
+    """
     ghcr_image = lab_common.resolve_setting("M3UNDLE_GHCR_IMAGE", default=DEFAULT_GHCR_IMAGE) or DEFAULT_GHCR_IMAGE
-    image = f"{ghcr_image}:{tag}"
+    image = lab_common.ghcr_tag_image(tag, ghcr_image)
     lab_common.docker_pull(image)
     lab_common.sync_runtime_compose()
-    lab_common.set_deployment_metadata("published-tag", tag, image=image)
+    lab_common.set_deployment_metadata("tag", tag, image=image)
     return image
 
 
