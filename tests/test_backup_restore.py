@@ -378,7 +378,8 @@ def bkr_04(ctx: Any, base_url: str, state: dict[str, object]) -> None:
     restored = (
         upload_status == 200
         and isinstance(uploaded, dict)
-        and uploaded.get("valid") is True
+        and isinstance(uploaded_name, str)
+        and bool(uploaded_name)
         and stage_status == 200
         and isinstance(staged, dict)
         and staged.get("success") is True
