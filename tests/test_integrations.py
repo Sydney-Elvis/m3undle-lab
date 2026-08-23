@@ -291,7 +291,7 @@ def int_04(ctx: Any, state: dict[str, object]) -> None:
 
 
 @SUITE.teardown
-def teardown(_base_url: str, state: dict[str, object]) -> None:
+def teardown(base_url: str, state: dict[str, object]) -> None:
     client = state.get("client")
     profile_b_id = state.get("profile_b_id")
     if isinstance(client, M3UndleClient) and isinstance(profile_b_id, str) and profile_b_id:
