@@ -33,6 +33,8 @@ def _layout() -> None:
     """Create M3Undle's product directories and project lab.env into runtime .env."""
     runtime = lab_common.runtime_dir()
     (runtime / "m3u_data").mkdir(parents=True, exist_ok=True)
+    for sub in ("jellyfin/config", "jellyfin/cache", "nextpvr/config", "nextpvr/recordings", "nextpvr/buffer"):
+        (runtime / "client-apps" / sub).mkdir(parents=True, exist_ok=True)
     values = lab_common.load_lab_env()
     product_values = {name: value for name, value in values.items() if name.startswith("M3UNDLE_")}
     if product_values:

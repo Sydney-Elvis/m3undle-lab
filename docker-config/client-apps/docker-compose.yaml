@@ -1,0 +1,41 @@
+# Client-app services for `lab clients up/down/reset`. Layered on top of the base stack
+# plus m3undle-bridge-network.override.yaml, which defines the `media` network these
+# services join and pins m3undle's own address on it (see that file's own comment for why
+# that pin matters). No scenario matrix yet -- each client gets one fixed config/data
+# volume, not the frozen lab's per-scenario subfolder set. Add that back if/when a real
+# test needs more than one starting state per client.
+services:
+  jellyfin:
+    container_name: m3undle-lab-jellyfin
+    image: ${JELLYFIN_IMAGE:-jellyfin/jellyfin}
+    profiles: ["jellyfin"]
+    depends_on:
+      m3undle:
+        condition: service_healthy
+    networks:
+      media:
+        ipv4_address: 172.21.0.4
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./client-apps/jellyfin/config:/config
+      - ./client-apps/jellyfin/cache:/cache
+    restart: unless-stopped
+
+  nextpvr:
+    container_name: m3undle-lab-nextpvr
+    image: ${NEXTPVR_IMAGE:-nextpvr/nextpvr_amd64}
+    profiles: ["nextpvr"]
+    depends_on:
+      m3undle:
+        condition: service_healthy
+    networks:
+      media:
+        ipv4_address: 172.21.0.3
+    ports:
+      - "8866:8866"
+    volumes:
+      - ./client-apps/nextpvr/config:/config
+      - ./client-apps/nextpvr/recordings:/recordings
+      - ./client-apps/nextpvr/buffer:/buffer
+    restart: unless-stopped

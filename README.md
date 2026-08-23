@@ -4,8 +4,8 @@ Deterministic integration testing for [M3Undle](https://github.com/Sydney-Elvis/
 built on [se-lab](https://github.com/Sydney-Elvis/se-lab).
 
 The lab has one shared M3Undle instance. Automated suites use the host-network override;
-the future Jellyfin/NextPVR workflow uses the bridge override, whose M3Undle address is
-fixed at `172.21.0.2` because NextPVR caches the manually-added tuner IP.
+`lab clients up` uses the bridge override, whose M3Undle address is fixed at `172.21.0.2`
+because NextPVR caches the manually-added tuner IP.
 
 ## Quick start
 
@@ -46,8 +46,22 @@ restoration) can be run with:
 ./lab run --deploy-only
 ```
 
-Jellyfin and NextPVR are registered as manual-only client plugins. `lab clients` deployment,
-the client compose services, and the remaining frozen suites are intentionally follow-up work.
+Jellyfin and NextPVR are registered as manual-only client plugins (no automated `verify()` —
+se-lab falls back to checklist generation for them). Bringing them up alongside M3Undle:
+
+```bash
+./lab clients up                       # every registered client (jellyfin + nextpvr)
+./lab clients up --profile jellyfin    # just one
+./lab clients status                   # versions + rollback history
+./lab clients reset --profile nextpvr  # wipe state, recreate clean
+./lab clients down                     # stop/remove clients, M3Undle keeps running
+```
+
+`lab clients up/down/reset` switch the whole stack (M3Undle + selected clients) to the
+bridge-network topology above, recreating the M3Undle container in the process — don't run
+them while an automated suite run (host-network topology) is relying on it staying up. No
+scenario matrix yet (one fixed config per client); the remaining frozen suites are still
+follow-up work.
 
 ## Seed connection settings
 

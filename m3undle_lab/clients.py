@@ -1,11 +1,18 @@
-"""Manual-only client registrations for the future bridge-network workflow."""
+"""Manual-only client registrations, wired to the bridge-network workflow."""
 
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 from agent import registry
 from agent.clients.plugin import ClientPlugin
+
+_DOCKER_CONFIG_DIR = Path(__file__).resolve().parents[1] / "docker-config"
+BRIDGE_OVERRIDE = _DOCKER_CONFIG_DIR / "m3undle-bridge-network.override.yaml"
+CLIENT_APPS_COMPOSE = _DOCKER_CONFIG_DIR / "client-apps" / "docker-compose.yaml"
+
+registry.set_client_compose_files([BRIDGE_OVERRIDE, CLIENT_APPS_COMPOSE])
 
 
 class _ImageClient(ClientPlugin):
