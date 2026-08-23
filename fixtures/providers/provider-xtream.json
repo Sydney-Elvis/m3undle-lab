@@ -1,0 +1,96 @@
+{
+  "provider_name": "provider-xtream",
+  "max_streams": 4,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-xtream-stream",
+    "payload_mode": "ts"
+  },
+  "channels": {
+    "channel-201": {
+      "display_name": "Xtream Sports 1",
+      "group_title": "XTR-Sports",
+      "tvg_id": "xtr-sports-1",
+      "payload": "xtr-channel-201",
+      "payload_mode": "file",
+      "payload_file": "fixtures/media/playback-live.ts",
+      "payload_chunk_bytes": 1316
+    },
+    "channel-202": {
+      "display_name": "Xtream Sports 2",
+      "group_title": "XTR-Sports",
+      "tvg_id": "xtr-sports-2",
+      "payload": "xtr-channel-202"
+    },
+    "channel-203": {
+      "display_name": "Xtream News 1",
+      "group_title": "XTR-News",
+      "tvg_id": "xtr-news-1",
+      "payload": "xtr-channel-203"
+    }
+  },
+  "xtream": {
+    "username": "xtreamuser",
+    "password": "xtreampass",
+    "categories": [
+      { "category_id": "10", "category_name": "XTR-Sports", "parent_id": 0 },
+      { "category_id": "11", "category_name": "XTR-News",   "parent_id": 0 }
+    ],
+    "stream_ids": {
+      "channel-201": 20001,
+      "channel-202": 20002,
+      "channel-203": 20003
+    },
+    "vod_categories": [
+      { "category_id": "20", "category_name": "Lab Movies", "parent_id": 0 }
+    ],
+    "vod_streams": [
+      {
+        "stream_id": 30001,
+        "name": "Lab Movie One",
+        "stream_type": "movie",
+        "category_id": "20",
+        "container_extension": "mkv",
+        "added": "0",
+        "direct_source": ""
+      },
+      {
+        "stream_id": 30002,
+        "name": "Lab Movie Cap Hold",
+        "stream_type": "movie",
+        "category_id": "20",
+        "container_extension": "mkv",
+        "added": "0",
+        "direct_source": ""
+      }
+    ],
+    "series_categories": [
+      { "category_id": "30", "category_name": "Lab Series", "parent_id": 0 }
+    ],
+    "series": [
+      {
+        "series_id": 40001,
+        "name": "Lab Show One",
+        "category_id": "30",
+        "last_modified": "1783900800",
+        "cover": "",
+        "plot": "Deterministic lab series"
+      }
+    ],
+    "series_info": {
+      "40001": {
+        "info": { "name": "Lab Show One", "category_id": "30" },
+        "seasons": [ { "season_number": 1, "name": "Season 1" } ],
+        "episodes": {
+          "1": [
+            { "id": 50001, "episode_num": 1, "season": 1, "title": "Lab Show One — S01E01", "container_extension": "mkv", "info": {} },
+            { "id": 50002, "episode_num": 2, "season": 1, "title": "Lab Show One — S01E02", "container_extension": "mkv", "info": {} }
+          ]
+        }
+      }
+    }
+  }
+}

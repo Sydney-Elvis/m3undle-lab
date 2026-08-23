@@ -1,0 +1,27 @@
+{
+  "provider_name": "provider-clean-relay",
+  "max_streams": 4,
+  "defaults": {
+    "content_type": "video/MP2T",
+    "payload_mode": "file",
+    "payload_file": "fixtures/media/clean-relay-loop-long.ts",
+    "payload_chunk_bytes": 1316,
+    "chunk_count": 1000,
+    "chunk_interval_ms": 20
+  },
+  "channels": {
+    "clean-relay-continuous": {
+      "display_name": "Clean Relay Continuous",
+      "group_title": "Sim-Clean-Relay",
+      "tvg_id": "clean-relay-continuous"
+    },
+    "clean-relay-stall": {
+      "display_name": "Clean Relay Stall",
+      "group_title": "Sim-Clean-Relay",
+      "tvg_id": "clean-relay-stall",
+      "failure_mode": "stall_after_chunks",
+      "failure_after_chunks": 600,
+      "stall_seconds": 60.0
+    }
+  }
+}

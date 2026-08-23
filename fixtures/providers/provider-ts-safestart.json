@@ -1,0 +1,25 @@
+{
+  "provider_name": "provider-ts-safestart",
+  "max_streams": 4,
+  "defaults": {
+    "content_type": "video/MP2T",
+    "payload_mode": "ts",
+    "chunk_count": 1000,
+    "chunk_interval_ms": 20
+  },
+  "channels": {
+    "ts-channel-continuous": {
+      "display_name": "TS Continuous (Safe-Start)",
+      "group_title": "Sim-TS",
+      "tvg_id": "ts-channel-continuous"
+    },
+    "ts-channel-stall": {
+      "display_name": "TS Stall (Reconnect)",
+      "group_title": "Sim-TS",
+      "tvg_id": "ts-channel-stall",
+      "failure_mode": "stall_after_chunks",
+      "failure_after_chunks": 25,
+      "stall_seconds": 60.0
+    }
+  }
+}

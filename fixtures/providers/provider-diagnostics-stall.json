@@ -1,0 +1,22 @@
+{
+  "provider_name": "provider-diagnostics-stall",
+  "max_streams": 4,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-diagnostics-stream"
+  },
+  "channels": {
+    "channel-stall": {
+      "display_name": "Diagnostics Stall Channel",
+      "group_title": "Sim-Diagnostics",
+      "tvg_id": "channel-stall",
+      "failure_mode": "stall_after_chunks",
+      "failure_after_chunks": 4,
+      "stall_seconds": 20,
+      "payload": "provider-diagnostics-stall"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "provider_name": "provider-cooldown-407",
+  "max_streams": 4,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-cooldown-stream"
+  },
+  "channels": {
+    "channel-407": {
+      "display_name": "Cooldown 407 Channel",
+      "group_title": "Sim-Failures",
+      "tvg_id": "channel-407",
+      "failure_mode": "http_error",
+      "failure_status_code": 407,
+      "payload": "provider-cooldown-407"
+    }
+  }
+}

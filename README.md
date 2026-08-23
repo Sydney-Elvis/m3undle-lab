@@ -63,6 +63,43 @@ them while an automated suite run (host-network topology) is relying on it stayi
 scenario matrix yet (one fixed config per client); the remaining frozen suites are still
 follow-up work.
 
+## Provider simulator + test driver
+
+`m3undle_lab/simulator.py` (`SimulatorInstance`) and `m3undle_lab/api.py` (`M3UndleClient`)
+are ported from the frozen lab's harness — most suites need both. The simulator engine
+itself (`provider_sim.py`) is a separate public product, not lab code:
+[Sydney-Elvis/M3Undle-provider-simulator](https://github.com/Sydney-Elvis/M3Undle-provider-simulator).
+Clone it and point `M3UNDLE_SIMULATOR_ENGINE_DIR` at the checkout in `lab.env`. Its local
+backend also needs `jsonschema` in this lab's own `.venv` — installed automatically from this
+repo's own `requirements.txt` if you use `se-lab/scripts/setup_vm.sh`; otherwise `pip install
+-r requirements.txt` after se-lab's own setup.
+
+```python
+from m3undle_lab.simulator import SimulatorInstance
+from m3undle_lab.api import M3UndleClient
+
+sim = SimulatorInstance(fixture="fixtures/providers/provider-a.json", port=19001, bind="0.0.0.0",
+                         public_host="http://host.docker.internal:19001")  # see note below
+sim.start()
+sim.wait_healthy()
+
+client = M3UndleClient("http://127.0.0.1:8080")
+client.setup(playlist_url=sim.playlist_url)   # full provider/profile/snapshot bring-up
+client.get_stream_urls()                       # ready for streaming assertions
+sim.stop()
+```
+
+**`public_host` differs by platform, and this matters more than it looks.** The simulator
+needs to bind an address the *M3Undle container* can reach, not just the host. On real Linux
+(srv1), `agent.container.get_docker_gateway("m3undle-lab_media")` — the bridge network's own
+gateway IP — works, matching `get_docker_gateway()`'s documented behavior. On macOS with
+Docker Desktop, that gateway IP is internal to the Desktop VM and does **not** route back to a
+process bound on the actual host — use `http://host.docker.internal:{port}` instead (Docker
+Desktop's own documented mechanism for exactly this). Verified for real on this Mac: the
+gateway-IP approach failed with `Connection refused`; `host.docker.internal` worked end to
+end (`M3UndleClient.setup()` completed, 3 channels selected, a real stream byte-fetched
+through M3Undle from the simulator).
+
 ## Seed connection settings
 
 Once an image with settings archives is deployed, a clean lab instance can be seeded from a

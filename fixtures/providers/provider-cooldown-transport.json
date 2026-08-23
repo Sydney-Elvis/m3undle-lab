@@ -1,0 +1,20 @@
+{
+  "provider_name": "provider-cooldown-transport",
+  "max_streams": 4,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-cooldown-stream"
+  },
+  "channels": {
+    "channel-transport": {
+      "display_name": "Cooldown Transport Channel",
+      "group_title": "Sim-Failures",
+      "tvg_id": "channel-transport",
+      "failure_mode": "disconnect_before_headers",
+      "payload": "provider-cooldown-transport"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "provider_name": "provider-b",
+  "max_streams": 2,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 125,
+    "startup_delay_ms": 250,
+    "failure_mode": "none",
+    "payload": "provider-b-stream"
+  },
+  "channels": {
+    "channel-101": {
+      "display_name": "Channel 101 (Provider B)",
+      "group_title": "Sim-Sports",
+      "tvg_id": "channel-101",
+      "payload": "provider-b-channel-101"
+    },
+    "channel-102": {
+      "display_name": "Channel 102 (Provider B)",
+      "group_title": "Sim-News",
+      "tvg_id": "channel-102",
+      "payload": "provider-b-channel-102",
+      "failure_mode": "stall_after_chunks",
+      "failure_after_chunks": 15,
+      "stall_seconds": 10
+    },
+    "channel-103": {
+      "display_name": "Channel 103 (Provider B)",
+      "group_title": "Sim-Sports",
+      "tvg_id": "channel-103",
+      "payload": "provider-b-channel-103"
+    }
+  }
+}

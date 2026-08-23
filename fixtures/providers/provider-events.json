@@ -1,0 +1,61 @@
+{
+  "provider_name": "provider-events",
+  "max_streams": 6,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-events-stream"
+  },
+  "channels": {
+    "channel-regular-1": {
+      "display_name": "Regular Channel 1",
+      "group_title": "Regular",
+      "tvg_id": "regular-1",
+      "payload": "regular-channel-1"
+    },
+    "channel-regular-2": {
+      "display_name": "Regular Channel 2",
+      "group_title": "Regular",
+      "tvg_id": "regular-2",
+      "payload": "regular-channel-2"
+    },
+    "channel-ppv-1": {
+      "display_name": "PPV EVENT 1: UFC 400",
+      "group_title": "PPV",
+      "tvg_id": "ppv-1",
+      "payload": "ppv-channel-1"
+    },
+    "channel-ppv-2": {
+      "display_name": "PPV EVENT 2: Boxing Championship",
+      "group_title": "PPV",
+      "tvg_id": "ppv-2",
+      "payload": "ppv-channel-2"
+    },
+    "channel-event-ufc": {
+      "display_name": "UFC 400: Heavyweight Title Fight",
+      "group_title": "Events",
+      "tvg_id": "event-ufc-400",
+      "payload": "event-ufc-channel"
+    },
+    "channel-event-wwe": {
+      "display_name": "WWE RAW Live",
+      "group_title": "Events",
+      "tvg_id": "event-wwe-raw",
+      "payload": "event-wwe-channel"
+    },
+    "channel-placeholder-1": {
+      "display_name": "Event 1:",
+      "group_title": "Events",
+      "tvg_id": "placeholder-1",
+      "payload": "placeholder-channel-1"
+    },
+    "channel-placeholder-2": {
+      "display_name": "Event 2:",
+      "group_title": "Events",
+      "tvg_id": "placeholder-2",
+      "payload": "placeholder-channel-2"
+    }
+  }
+}

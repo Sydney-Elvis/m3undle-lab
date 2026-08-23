@@ -1,0 +1,76 @@
+{
+  "provider_name": "provider-epg",
+  "max_streams": 4,
+  "defaults": {
+    "chunk_count": 300,
+    "chunk_interval_ms": 100,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "payload": "provider-epg-stream"
+  },
+  "channels": {
+    "channel-101": {
+      "display_name": "EPG Sports 1",
+      "group_title": "EPG-Sports",
+      "tvg_id": "epg-sports-1",
+      "payload": "epg-channel-101"
+    },
+    "channel-102": {
+      "display_name": "EPG News 1",
+      "group_title": "EPG-News",
+      "tvg_id": "epg-news-1",
+      "payload": "epg-channel-102"
+    },
+    "channel-103": {
+      "display_name": "EPG Entertainment 1",
+      "group_title": "EPG-Entertainment",
+      "tvg_id": "epg-entertainment-1",
+      "payload": "epg-channel-103"
+    }
+  },
+  "epg": {
+    "path": "/epg/guide.xml",
+    "channels": [
+      { "id": "epg-sports-1",        "name": "EPG Sports 1" },
+      { "id": "epg-news-1",          "name": "EPG News 1" },
+      { "id": "epg-entertainment-1", "name": "EPG Entertainment 1" }
+    ],
+    "programmes": [
+      {
+        "channel": "epg-sports-1",
+        "start": "20260411000000 +0000",
+        "stop":  "20260411010000 +0000",
+        "title": "Morning Sport Show",
+        "desc": "Highlights from last night's games."
+      },
+      {
+        "channel": "epg-sports-1",
+        "start": "20260411010000 +0000",
+        "stop":  "20260411020000 +0000",
+        "title": "Afternoon Sport Show",
+        "desc": "Live match coverage."
+      },
+      {
+        "channel": "epg-news-1",
+        "start": "20260411000000 +0000",
+        "stop":  "20260411003000 +0000",
+        "title": "Morning Briefing",
+        "desc": "Top stories of the day."
+      },
+      {
+        "channel": "epg-news-1",
+        "start": "20260411003000 +0000",
+        "stop":  "20260411010000 +0000",
+        "title": "World News",
+        "desc": "International coverage."
+      },
+      {
+        "channel": "epg-entertainment-1",
+        "start": "20260411000000 +0000",
+        "stop":  "20260411020000 +0000",
+        "title": "Movie Night",
+        "desc": "Feature film presentation."
+      }
+    ]
+  }
+}

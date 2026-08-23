@@ -1,0 +1,26 @@
+{
+  "provider_name": "provider-web-hls",
+  "max_streams": 4,
+  "defaults": {
+    "content_type": "video/MP2T",
+    "payload_mode": "file",
+    "payload_file": "fixtures/media/clean-relay-loop-long.ts",
+    "payload_chunk_bytes": 1316,
+    "chunk_count": 1000,
+    "chunk_interval_ms": 20,
+    "startup_delay_ms": 0,
+    "failure_mode": "none",
+    "playlist_format": "hls",
+    "hls_segment_count": 8,
+    "hls_segment_chunks": 12,
+    "payload": "provider-web-hls-stream"
+  },
+  "channels": {
+    "channel-web-hls-301": {
+      "display_name": "Web HLS Source 301",
+      "group_title": "Web-Player-HLS",
+      "tvg_id": "web-hls-301",
+      "payload": "web-hls-channel-301"
+    }
+  }
+}

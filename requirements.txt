@@ -1,0 +1,8 @@
+# Product-specific dependencies, on top of se-lab/requirements.txt.
+# Installed automatically by se-lab/scripts/setup_vm.sh when this file is present.
+#
+# jsonschema: the local-backend simulator (m3undle_lab/simulator.py) runs the
+# external provider-simulator engine (Sydney-Elvis/M3Undle-provider-simulator)
+# as a subprocess under this same interpreter, so its own runtime deps need to
+# be here too. Pinned to match that engine's own requirements.txt.
+jsonschema==4.10.3
