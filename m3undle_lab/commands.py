@@ -254,7 +254,7 @@ def handle_run(args: argparse.Namespace, config: object) -> int:
         _host_compose_up()
 
     selected = _select_suites(discover_suites(TESTS_DIR), only=args.only, test_group=args.test_group)
-    summary = run_suites(selected, results_dir=lab_common.runtime_results_dir(), base_url=_base_url())
+    summary = run_suites(selected, results_dir=lab_common.runtime_results_dir(), label="M3Undle Lab", base_url=_base_url())
 
     if args.keep:
         print("M3Undle left running (--keep).", flush=True)
