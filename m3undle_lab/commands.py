@@ -30,6 +30,11 @@ CHECKLIST_TEMPLATE = Path(__file__).resolve().parents[1] / "docs" / "checklist-t
 registry.set_analysis_plugin(M3UndleAnalysis())
 registry.set_database_plugin(M3UndleDatabase())
 registry.set_settings_plugin(M3UndleSettings())
+# Host-network mode (automated suites) and the bridge-network override (clients
+# up) both publish these to the host -- see docker-config/m3undle-bridge-network
+# .override.yaml. Docker can't report a bind conflict for host-network mode
+# itself, hence se-lab's preflight check needing to know them explicitly.
+registry.set_required_host_ports((5004, 8080, 9999))
 
 
 def _layout() -> None:
