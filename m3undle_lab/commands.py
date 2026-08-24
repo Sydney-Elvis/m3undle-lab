@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from agent import common as lab_common, registry
 from agent.container import wait_up
-from agent.suites import Suite, discover_suites, run_suites, suites_in_group
+from agent.suites import discover_suites, run_suites, select_suites
 
 from .analysis import M3UndleAnalysis
 from .database import M3UndleDatabase
@@ -188,22 +188,6 @@ def handle_recreate(args: argparse.Namespace, config: object) -> int:
     return 0
 
 
-def _select_suites(suites: list[Suite], *, only: str | None, test_group: str | None) -> list[Suite]:
-    if only:
-        selected = [suite for suite in suites if suite.name == only]
-        if selected:
-            return selected
-        available = ", ".join(suite.name for suite in suites) or "(none)"
-        raise SystemExit(f"Unknown suite {only!r}. Available: {available}")
-
-    group = test_group or "all"
-    selected = suites_in_group(suites, group)
-    if selected:
-        return selected
-    available = ", ".join(sorted({suite.group for suite in suites})) or "(none)"
-    raise SystemExit(f"Unknown or empty suite group {group!r}. Available groups: all, {available}")
-
-
 def _configure_run(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("target", nargs="?", help="Optional source branch or tag to build before running")
     parser.add_argument("--local", action="store_true", help="Build the existing cached checkout without fetching")
@@ -218,6 +202,7 @@ def _configure_run(parser: argparse.ArgumentParser) -> None:
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--only", metavar="SUITE", help="Run one registered suite by name")
     selection.add_argument("--test-group", metavar="GROUP", help="Run a registered suite group (default: all)")
+    parser.add_argument("--case", metavar="CASE_ID", help="Narrow to one registered case id within the selected suite(s)")
 
 
 def _validate_run_options(args: argparse.Namespace) -> None:
@@ -253,7 +238,7 @@ def handle_run(args: argparse.Namespace, config: object) -> int:
             raise SystemExit("No image is deployed. Pass a target, --pull, or run './lab build <branch>' first.")
         _host_compose_up()
 
-    selected = _select_suites(discover_suites(TESTS_DIR), only=args.only, test_group=args.test_group)
+    selected = select_suites(discover_suites(TESTS_DIR), only=args.only, group=args.test_group, case=args.case)
     summary = run_suites(selected, results_dir=lab_common.runtime_results_dir(), label="M3Undle Lab", base_url=_base_url())
 
     if args.keep:

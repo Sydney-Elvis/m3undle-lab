@@ -47,7 +47,7 @@ commit, since the two can diverge (a platform-specific build issue, a broken pub
 - `up [ref] [--pull TAG] [--local]` builds/pulls if given a target (or reuses the currently
   deployed image if not), deploys, health-checks, and **leaves M3Undle running** — for manual,
   hands-on testing. Pair it with `./lab down` when you're done.
-- `run [ref] [--pull TAG] [--local] [--no-deploy] [--only X] [--test-group G] [--keep]` is
+- `run [ref] [--pull TAG] [--local] [--no-deploy] [--only X] [--test-group G] [--case ID] [--keep]` is
   **only** about automated testing: deploys fresh, runs the selected suites, and always tears
   down afterward — pass or fail — unless `--keep`. `--no-deploy` reruns against the currently
   deployed image instead of rebuilding, but still redeploys fresh, still runs suites, and
@@ -65,8 +65,10 @@ by `run` itself:
 ```
 
 `lab run` executes every registered suite by default; use `--test-group` or `--only` to
-narrow that selection. `tests/test_auth_gate.py` is the first migrated suite: its registered
-`AUTH-01` through `AUTH-07` cases (plus deterministic restoration) can be run with:
+narrow that selection, and `--case` to narrow further to one registered case id within
+whatever suite(s) are selected (e.g. `--only auth-gate --case AUTH-03`). `tests/test_auth_gate.py`
+is the first migrated suite: its registered `AUTH-01` through `AUTH-07` cases (plus
+deterministic restoration) can be run with:
 
 ```bash
 ./lab run --fresh --only auth-gate
