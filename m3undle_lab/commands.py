@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import urllib.error
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from agent import common as lab_common, registry
 from agent.container import wait_up
@@ -23,6 +25,7 @@ SERVICE = "m3undle"
 CONTAINER_NAME = "m3undle-lab"
 HOST_OVERRIDE = Path(__file__).resolve().parents[1] / "docker-config" / "m3undle-host-network.override.yaml"
 TESTS_DIR = Path(__file__).resolve().parents[1] / "tests"
+CHECKLIST_TEMPLATE = Path(__file__).resolve().parents[1] / "docs" / "checklist-template.md"
 
 registry.set_analysis_plugin(M3UndleAnalysis())
 registry.set_database_plugin(M3UndleDatabase())
@@ -282,3 +285,53 @@ def handle_status(args: argparse.Namespace, config: object) -> int:
     if args.logs:
         lab_common.compose_logs(args.logs, SERVICE)
     return 0 if healthy else 1
+
+
+def _configure_checklist(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Label for this run (default: the currently deployed source ref, or 'unlabeled')",
+    )
+
+
+@registry.command(
+    "checklist",
+    help="Generate a manual client-app testing checklist (Jellyfin/NextPVR) for the currently deployed build",
+    configure=_configure_checklist,
+)
+def handle_checklist(args: argparse.Namespace, config: object) -> int:
+    """Jellyfin and NextPVR have no automated verify() (see agent/clients/plugin.py's
+    manual-only fallback story) -- this is the only coverage they get. Fills in the
+    tracked docs/checklist-template.md with the current deployment's own metadata,
+    same fields the old frozen lab's `create-checklist` populated by hand, so a
+    tester isn't retyping the image/commit/host into a blank template."""
+    if not CHECKLIST_TEMPLATE.is_file():
+        raise SystemExit(f"Missing {CHECKLIST_TEMPLATE}.")
+
+    metadata = lab_common.get_deployment_metadata()
+    image = metadata["image"] or "not deployed"
+    digest = lab_common.get_image_repo_digest(metadata["image"]) if metadata["image"] else None
+    host = urlsplit(_base_url()).hostname or "127.0.0.1"
+    target_label = args.target or metadata["source_ref"] or "unlabeled"
+
+    filled = CHECKLIST_TEMPLATE.read_text(encoding="utf-8").format(
+        host=host,
+        target_label=target_label,
+        source_type=metadata["source_type"] or "unknown",
+        source_ref=metadata["source_ref"] or "unknown",
+        source_commit=metadata["source_commit"] or "unknown",
+        image=image,
+        image_digest=digest or "unknown",
+        generated_at_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+    run_id = lab_common.results_run_id(f"checklist-{target_label}")
+    out_path = lab_common.artifacts_checklists_dir() / f"{run_id}.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(filled, encoding="utf-8")
+
+    print(f"Checklist written to {out_path}", flush=True)
+    print(f"M3Undle: http://{host}:8080  (HDHR manual add: http://{host}:5004)", flush=True)
+    return 0

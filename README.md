@@ -96,6 +96,11 @@ them while an automated suite run (host-network topology) is relying on it stayi
 scenario matrix yet (one fixed config per client); the remaining frozen suites are still
 follow-up work.
 
+Since Jellyfin/NextPVR have no automated `verify()`, `./lab checklist [target]` generates a
+working copy of `docs/checklist-template.md` — filled in with the currently deployed
+image/commit/digest and the lab host — under `$M3UNDLE_RUNTIME_DIR/artifacts/checklists/`,
+for a human to work through against `./lab clients up`.
+
 ## Provider simulator + test driver
 
 `m3undle_lab/simulator.py` (`SimulatorInstance`) and `m3undle_lab/api.py` (`M3UndleClient`)
