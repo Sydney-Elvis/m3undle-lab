@@ -154,3 +154,15 @@ Create or refresh the fixture with `./lab settings export --out fixtures/setting
 The fixture must contain lab-only endpoints and synthetic credentials. Set one stable, lab-only
 `M3UNDLE_ENCRYPTION_KEY` in `lab.env` before creating it, and keep that key unchanged while the
 fixture is in use.
+
+## Before adding new lifecycle code here
+
+This lab is meant to stay a thin consumer of se-lab — `commands.py` should be orchestration
+(argument parsing, calling `agent.common`/`agent.suites`/registered plugins) plus real M3Undle
+facts (ports, health paths, image names), not a second copy of subprocess/compose/env-loading
+mechanism. Before adding a new one of those here, read se-lab's `docs/design.md` — specifically
+its "Guardrail: Where New Lifecycle Code Belongs" section — and check whether `agent.common`,
+`agent.suites`, `agent.status`, or an existing plugin ABC already covers it. This lab is currently
+the reference example of that pattern working (a sister lab, family-librarian-lab, drifted from it
+and an audit had to find and fix a real bug as a result) — keep it that way, and bump this lab's
+se-lab submodule pin regularly so mechanism extracted from elsewhere actually reaches this repo.
