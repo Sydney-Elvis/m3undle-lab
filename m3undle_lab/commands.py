@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from agent import common as lab_common, registry
 from agent.container import wait_up
+from agent.status import BaseStatus
 from agent.suites import discover_suites, run_suites, select_suites
 
 from .analysis import M3UndleAnalysis
@@ -254,27 +255,29 @@ def _configure_status(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--logs", type=int, default=0, metavar="LINES", help="Tail M3Undle logs after status")
 
 
+class M3UndleStatus(BaseStatus):
+    def __init__(self, *, logs: int = 0) -> None:
+        self._logs = logs
+
+    def extra(self) -> int:
+        try:
+            with urllib.request.urlopen(f"{_base_url().rstrip('/')}/livez", timeout=5) as response:
+                print(f"HTTP health: {response.status}", flush=True)
+                healthy = response.status == 200
+        except urllib.error.HTTPError as error:
+            print(f"HTTP health: {error.code}", flush=True)
+            healthy = False
+        except OSError as error:
+            print(f"HTTP health: unavailable ({error})", flush=True)
+            healthy = False
+        if self._logs:
+            lab_common.compose_logs(self._logs, SERVICE)
+        return 0 if healthy else 1
+
+
 @registry.command("status", help="Show M3Undle Compose state and HTTP health", configure=_configure_status)
 def handle_status(args: argparse.Namespace, config: object) -> int:
-    metadata = lab_common.get_deployment_metadata()
-    print(f"Runtime: {lab_common.runtime_summary()}", flush=True)
-    print(f"Current configured image: {lab_common.get_current_image() or 'not set'}", flush=True)
-    if metadata["source_type"] and metadata["source_ref"]:
-        print(f"Deployment source: {metadata['source_type']} {metadata['source_ref']}", flush=True)
-    lab_common.compose_ps()
-    try:
-        with urllib.request.urlopen(f"{_base_url().rstrip('/')}/livez", timeout=5) as response:
-            print(f"HTTP health: {response.status}", flush=True)
-            healthy = response.status == 200
-    except urllib.error.HTTPError as error:
-        print(f"HTTP health: {error.code}", flush=True)
-        healthy = False
-    except OSError as error:
-        print(f"HTTP health: unavailable ({error})", flush=True)
-        healthy = False
-    if args.logs:
-        lab_common.compose_logs(args.logs, SERVICE)
-    return 0 if healthy else 1
+    return M3UndleStatus(logs=args.logs).run()
 
 
 def _configure_checklist(parser: argparse.ArgumentParser) -> None:
