@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 
 from agent import common as lab_common, registry
 from agent.container import wait_up
-from agent.planning import RunPlan
+from agent.planning import RunPlan, RunReport
 from agent.status import BaseStatus
 from agent.suites import discover_suites, run_suites, select_suites
 
@@ -260,6 +260,7 @@ def handle_run(args: argparse.Namespace, config: object) -> int:
     if not _describe_run_plan(args).confirm(assume_yes=args.yes):
         print("Aborted.", flush=True)
         return 1
+    started_at = datetime.now(UTC)
     if args.fresh:
         lab_common.run(lab_common.compose_command("down", "--remove-orphans", extra_compose_files=[HOST_OVERRIDE]), check=False)
         registry.get_database_plugin().reset()
@@ -285,6 +286,19 @@ def handle_run(args: argparse.Namespace, config: object) -> int:
     else:
         lab_common.compose_down()
         print("M3Undle stopped after the run.", flush=True)
+
+    completed_at = datetime.now(UTC)
+    metadata = lab_common.get_deployment_metadata()
+    report = RunReport(label="M3Undle Lab")
+    if metadata["source_type"] and metadata["source_ref"]:
+        report.add("Source", f"{metadata['source_type']} {metadata['source_ref']}")
+    if metadata["source_commit"]:
+        report.add("Lab commit", metadata["source_commit"][:12])
+    report.add("Started at UTC", started_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    report.add("Completed at UTC", completed_at.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    report.add("Duration", lab_common.format_duration(int((completed_at - started_at).total_seconds())))
+    report.add("Result", "FAIL" if summary.failed else "PASS")
+    report.print()
 
     return 1 if summary.failed else 0
 
