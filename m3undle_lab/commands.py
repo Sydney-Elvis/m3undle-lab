@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from agent import common as lab_common, registry
 from agent.container import wait_up
+from agent.planning import RunPlan
 from agent.status import BaseStatus
 from agent.suites import discover_suites, run_suites, select_suites
 
@@ -204,6 +205,9 @@ def _configure_run(parser: argparse.ArgumentParser) -> None:
     selection.add_argument("--only", metavar="SUITE", help="Run one registered suite by name")
     selection.add_argument("--test-group", metavar="GROUP", help="Run a registered suite group (default: all)")
     parser.add_argument("--case", metavar="CASE_ID", help="Narrow to one registered case id within the selected suite(s)")
+    parser.add_argument(
+        "--yes", "-y", action="store_true", help="Skip the run-plan confirmation prompt (for CI/automation)"
+    )
 
 
 def _validate_run_options(args: argparse.Namespace) -> None:
@@ -220,8 +224,42 @@ def _validate_run_options(args: argparse.Namespace) -> None:
     help="Deploy M3Undle fresh, run registered suites, and tear down when done (unless --keep)",
     configure=_configure_run,
 )
+def _describe_run_plan(args: argparse.Namespace) -> RunPlan:
+    plan = RunPlan(label="M3Undle Lab", host=lab_common.current_hostname())
+    plan.add("Runtime dir", str(lab_common.runtime_dir()))
+    metadata = lab_common.get_deployment_metadata()
+    if metadata["source_type"] and metadata["source_ref"]:
+        plan.add("Current recorded source", f"{metadata['source_type']} {metadata['source_ref']}")
+    else:
+        plan.add("Current recorded source", "none deployed yet")
+
+    if args.pull:
+        plan.add("Resolved source", f"GHCR release tag {args.pull}")
+        plan.add("Source action", "pull published image, recreate stack")
+    elif args.local:
+        plan.add("Resolved source", "existing cached checkout (no fetch)")
+        plan.add("Source action", "build cached checkout, recreate stack")
+    elif args.target:
+        plan.add("Resolved source", f"branch or tag {args.target!r}")
+        plan.add("Source action", "fetch origin, checkout/reset, build image, recreate stack")
+    else:
+        plan.add("Resolved source", "currently deployed image (no rebuild)")
+        plan.add("Source action", "redeploy current image, recreate stack")
+
+    plan.add("Clean mode", "reset SQLite database" if args.fresh else "none")
+    selection = args.only or (f"group {args.test_group}" if args.test_group else "all")
+    if args.case:
+        selection += f", case {args.case}"
+    plan.add("Suites", selection)
+    plan.add("Teardown", "leave running (--keep)" if args.keep else "stop after run")
+    return plan
+
+
 def handle_run(args: argparse.Namespace, config: object) -> int:
     _validate_run_options(args)
+    if not _describe_run_plan(args).confirm(assume_yes=args.yes):
+        print("Aborted.", flush=True)
+        return 1
     if args.fresh:
         lab_common.run(lab_common.compose_command("down", "--remove-orphans", extra_compose_files=[HOST_OVERRIDE]), check=False)
         registry.get_database_plugin().reset()
