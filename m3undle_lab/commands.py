@@ -219,11 +219,6 @@ def _validate_run_options(args: argparse.Namespace) -> None:
         raise SystemExit("A source target, --pull, or --local cannot be used with --no-deploy.")
 
 
-@registry.command(
-    "run",
-    help="Deploy M3Undle fresh, run registered suites, and tear down when done (unless --keep)",
-    configure=_configure_run,
-)
 def _describe_run_plan(args: argparse.Namespace) -> RunPlan:
     plan = RunPlan(label="M3Undle Lab", host=lab_common.current_hostname())
     plan.add("Runtime dir", str(lab_common.runtime_dir()))
@@ -255,6 +250,11 @@ def _describe_run_plan(args: argparse.Namespace) -> RunPlan:
     return plan
 
 
+@registry.command(
+    "run",
+    help="Deploy M3Undle fresh, run registered suites, and tear down when done (unless --keep)",
+    configure=_configure_run,
+)
 def handle_run(args: argparse.Namespace, config: object) -> int:
     _validate_run_options(args)
     if not _describe_run_plan(args).confirm(assume_yes=args.yes):
