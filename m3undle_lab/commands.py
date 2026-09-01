@@ -145,6 +145,12 @@ def _configure_up(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("target", nargs="?", help="Optional source branch or tag to build before bringing up")
     parser.add_argument("--local", action="store_true", help="Build the existing cached checkout without fetching")
     parser.add_argument("--pull", metavar="TAG", help="Pull a published GHCR release tag instead of building from source")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Refresh the current branch and rebuild/restart only M3Undle's own container "
+        "(no other service in the stack is touched)",
+    )
 
 
 def _validate_up_options(args: argparse.Namespace) -> None:
@@ -152,6 +158,8 @@ def _validate_up_options(args: argparse.Namespace) -> None:
         raise SystemExit("A source target and --pull are mutually exclusive.")
     if args.pull and args.local:
         raise SystemExit("--pull cannot be combined with --local.")
+    if args.refresh and (args.target or args.pull or args.local):
+        raise SystemExit("--refresh cannot be combined with a source target, --pull, or --local.")
 
 
 @registry.command(
@@ -161,7 +169,10 @@ def _validate_up_options(args: argparse.Namespace) -> None:
 )
 def handle_up(args: argparse.Namespace, config: object) -> int:
     _validate_up_options(args)
-    if args.pull:
+    if args.refresh:
+        _, image = lab_common.deploy_current_branch(extra_compose_files=[HOST_OVERRIDE], service=SERVICE)
+        _wait_healthy()
+    elif args.pull:
         image = _pull_and_deploy(args.pull)
         _wait_healthy()
     elif args.target or args.local:
