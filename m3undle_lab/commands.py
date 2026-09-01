@@ -60,6 +60,20 @@ def _base_url() -> str:
     return lab_common.resolve_setting("M3UNDLE_BASE_URL", default="http://127.0.0.1:8080") or "http://127.0.0.1:8080"
 
 
+def _print_connection_info() -> None:
+    """Render M3Undle's manual-testing link through se-lab's shared host setting.
+
+    M3UNDLE_BASE_URL remains the target used for automated probes.  The
+    generic LAB_EXTERNAL_HOST affects only this human-facing link, matching
+    every other product lab's connection output.
+    """
+    parsed = urlsplit(_base_url())
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    lab_common.print_connection_info(
+        [lab_common.ConnectionInfo("M3Undle", port, scheme=parsed.scheme or "http", path=parsed.path)]
+    )
+
+
 def _repo_url() -> str:
     """Plugin-level default: this plugin only ever tests M3Undle, so it can just
     know that -- M3UNDLE_REPO_URL in lab.env becomes an optional fork/mirror
@@ -184,6 +198,7 @@ def handle_up(args: argparse.Namespace, config: object) -> int:
         _host_compose_up()
         image = lab_common.get_current_image()
     print(f"M3Undle image {image} is up and healthy. Use './lab down' when finished.", flush=True)
+    _print_connection_info()
     return 0
 
 
