@@ -353,7 +353,7 @@ class M3UndleStatus(BaseStatus):
         return 0 if healthy else 1
 
 
-@registry.command("status", help="Show M3Undle Compose state and HTTP health", configure=_configure_status)
+@registry.command("status", help="List running M3Undle lab services and HTTP health", configure=_configure_status)
 def handle_status(args: argparse.Namespace, config: object) -> int:
     return M3UndleStatus(logs=args.logs).run()
 
