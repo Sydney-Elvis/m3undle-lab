@@ -1,0 +1,62 @@
+schema_version: 1
+minimum_engine_version: 0.2.0
+
+name: clean-relay-catchup-deadline
+description: >
+  Same direct-relay (clean_relay_mode=off, no FFmpeg) byte-zero-restart
+  rewind as clean-relay-bounded-fallback.yaml -- failure ~10s into the
+  file, fresh connection restarts from byte zero, genuine backward DTS
+  jump reaches M3Undle's own scanner and the trim is abandoned
+  (RecoveryOverlapTrimAbandoned) because scanning ~10s of replay at real
+  pace exceeds the 6s RecoveryOverlapTrimHoldLimit.
+
+  The difference: the *second* connection is deliberately throttled to
+  500ms/chunk (vs. the first connection's 11ms/chunk), so replaying the
+  ~10s / ~910 chunks needed to reach the pre-failure position again would
+  take roughly 455s of wall time -- far longer than
+  RecoveryReplayCatchUpMaxDuration (45s default) or even the
+  rewind-proportional budget ArmRecoveryCatchUpDeadline computes for a
+  ~10s rewind (~15s). The whole-outage catch-up deadline must therefore
+  expire while DTS is still genuinely (if slowly) advancing -- not
+  stalled -- and recovery must accept the next decoder-safe boundary as a
+  deliberate, logged stale resume (RecoveryStaleResumeAccepted, kind 33)
+  well within a bounded wait, rather than hanging for however long the
+  old byte-only ceiling would have allowed a throttled provider to hang.
+
+provider:
+  name: proto-clean-relay-catchup-deadline
+  max_streams: 4
+  channels:
+    clean-relay-catchup-deadline:
+      display_name: Clean Relay Catchup Deadline
+      group_title: Sim-Clean-Relay
+      tvg_id: clean-relay-catchup-deadline
+      content_type: video/MP2T
+      payload_mode: file
+      payload_file: fixtures/media/clean-relay-loop-long.ts
+      payload_chunk_bytes: 1316
+      failure_mode: close_after_chunks
+      chunk_interval_ms: 11
+      # ~10s in at 11ms/chunk * 910 chunks -- same depth as
+      # clean-relay-bounded-fallback.yaml, so the rewind this produces is
+      # already known-good: deep enough to blow the 6s trim hold limit,
+      # shallow enough to stay a normal (not MaxRewindSeconds-exceeding)
+      # recovery.
+      failure_after_chunks: 910
+      # Must stay at or below floor(3,481,948 / 1316) = 2646, or the sim's byte-modulo
+      # playback wraps this connection back to byte zero mid-stream -- an unintended
+      # second rewind on top of the one this scenario is actually testing. See the same
+      # note in clean-relay-bounded-fallback.yaml.
+      chunk_count: 2600
+
+sequence:
+  - action: set_channel_behavior
+    channel: clean-relay-catchup-deadline
+    trigger:
+      after:
+        connections: 1
+    failure_mode: none
+    # Only the *next* connection's pacing changes (set_channel_behavior is
+    # resolved once per connection, at connection-open time) -- the first
+    # connection's failure position above is unaffected by this override.
+    chunk_interval_ms: 500

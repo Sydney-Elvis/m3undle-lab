@@ -44,6 +44,7 @@ EVENT_FFMPEG_RELAY_FALLBACK_TO_DIRECT = 17
 EVENT_RECOVERY_OUTPUT_RESUMED = 21
 EVENT_RECOVERY_OVERLAP_TRIM_ABANDONED = 30
 EVENT_IN_PROCESS_RELAY_TIMELINE_REWIND = 31
+EVENT_RECOVERY_STALE_RESUME_ACCEPTED = 33
 
 TIMELINE_EVENT_KINDS = {
     EVENT_UPSTREAM_FAILURE: "UpstreamFailure",
@@ -53,10 +54,11 @@ TIMELINE_EVENT_KINDS = {
     EVENT_RECOVERY_OUTPUT_RESUMED: "RecoveryOutputResumed",
     EVENT_RECOVERY_OVERLAP_TRIM_ABANDONED: "RecoveryOverlapTrimAbandoned",
     EVENT_IN_PROCESS_RELAY_TIMELINE_REWIND: "InProcessRelayTimelineRewind",
+    EVENT_RECOVERY_STALE_RESUME_ACCEPTED: "RecoveryStaleResumeAccepted",
 }
 
 TS_PACKET_SIZE = 188
-CASE_IDS = ["CLEAN-RELAY-01", "CLEAN-RELAY-02", "CLEAN-RELAY-04", "CLEAN-RELAY-05", "CLEAN-RELAY-06", "CLEAN-RELAY-07"]
+CASE_IDS = ["CLEAN-RELAY-01", "CLEAN-RELAY-02", "CLEAN-RELAY-04", "CLEAN-RELAY-05", "CLEAN-RELAY-06", "CLEAN-RELAY-07", "CLEAN-RELAY-08"]
 
 
 def _timestamp_discontinuity_fixture_path() -> str:
@@ -210,6 +212,14 @@ def wait_for_event_count(m3undle_url: str, kind: int, minimum: int = 1, timeout_
             return latest
         time.sleep(0.5)
     return latest
+
+
+def first_event_timestamp(events: list[dict[str, Any]], kind: int) -> datetime | None:
+    matching = [e for e in events if event_kind(e) == kind]
+    matching.sort(key=lambda e: _event_field(e, "timestampUtc", "TimestampUtc") or "")
+    if not matching:
+        return None
+    return _parse_event_timestamp(_event_field(matching[0], "timestampUtc", "TimestampUtc"))
 
 
 def is_ts_aligned(data: bytes) -> bool:
@@ -623,6 +633,101 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
         teardown(m3undle_url, provider_id, proc)
 
 
+def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: str) -> None:
+    print("\n--- Scenario: CLEAN-RELAY-08 whole-outage catch-up deadline forces a bounded stale resume ---")
+    fixture = str(SCENARIOS_DIR / "clean-relay-catchup-deadline.yaml")
+    provider_port = 19688
+    proc = None
+    provider_id = ""
+    try:
+        proc, provider_id, urls = setup_one_provider(m3undle_url, "provider-clean-relay-catchup-deadline", provider_port, clean_relay_mode="off", fixture=fixture)
+        stream_url = next((u for u in urls if "clean-relay-catchup-deadline" in u), urls[0])
+
+        import urllib.request
+
+        capture = bytearray()
+        latest_events: list[dict[str, Any]] = []
+        status_code = None
+        # The throttled second connection needs far longer than the ~15s catch-up
+        # deadline to actually reach the pre-failure position (~455s at 500ms/chunk for
+        # ~910 chunks) -- the whole point is that recovery must resume long before that,
+        # once the deadline expires, not wait for real freshness. 90s is generous slack
+        # above the expected ~15-25s bound while staying far short of ever letting a
+        # stalled/never-fresh catch-up run to completion.
+        with urllib.request.urlopen(urllib.request.Request(stream_url), timeout=100.0) as resp:
+            status_code = resp.status
+            for chunk in iter_chunks_with_deadline(resp, chunk_size=TS_PACKET_SIZE * 35, deadline_seconds=90.0):
+                if not chunk:
+                    continue
+                capture.extend(chunk)
+                latest_events = get_events(m3undle_url)
+                if count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1:
+                    break
+                if len(capture) >= 4 * 1024 * 1024:
+                    break
+
+        latest_events = get_events(m3undle_url)
+        print("  Diagnostic event timeline:")
+        print_event_timeline(latest_events, TIMELINE_EVENT_KINDS)
+        state = provider_state(provider_port)
+        reconnect_count = count_events(latest_events, EVENT_RECONNECT_SCHEDULED)
+        abandoned_count = count_events(latest_events, EVENT_RECOVERY_OVERLAP_TRIM_ABANDONED)
+        stale_resume_count = count_events(latest_events, EVENT_RECOVERY_STALE_RESUME_ACCEPTED)
+        resumed_count = count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED)
+        resumed_bytes_suppressed = event_bytes_suppressed(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED)
+        total_opened = state.get("total_opened", 0)
+        aligned = is_ts_aligned(bytes(capture))
+
+        source_es = build_source_es(CLEAN_RELAY_LOOP_LONG)
+        offsets = resolve_offsets(bytes(capture), source_es)
+        backward_jump = first_backward_jump(offsets)
+        resolved = count_resolved(offsets)
+
+        connection_timeline = state.get("connection_timeline", {})
+        timeline_entries = list(connection_timeline.values())
+        second_connection_first_chunk_index = timeline_entries[1].get("first_chunk_index") if len(timeline_entries) >= 2 else None
+
+        reconnect_ts = first_event_timestamp(latest_events, EVENT_RECONNECT_SCHEDULED)
+        stale_resume_ts = first_event_timestamp(latest_events, EVENT_RECOVERY_STALE_RESUME_ACCEPTED)
+        resumed_ts = first_event_timestamp(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED)
+        seconds_to_stale_resume = (stale_resume_ts - reconnect_ts).total_seconds() if reconnect_ts and stale_resume_ts else None
+        seconds_to_resume = (resumed_ts - reconnect_ts).total_seconds() if reconnect_ts and resumed_ts else None
+
+        reasons: list[str] = []
+        add_reason(reasons, status_code == 200, "downstream stream did not open successfully")
+        add_reason(reasons, isinstance(total_opened, int) and total_opened >= 2, "provider did not see a second connection")
+        add_reason(reasons, reconnect_count >= 1, "M3Undle's own outer reconnect did not run")
+        add_reason(reasons, second_connection_first_chunk_index == 0, f"provider's second connection did not actually restart from byte zero (first_chunk_index={second_connection_first_chunk_index})")
+        add_reason(reasons, abandoned_count >= 1, "RecoveryOverlapTrimAbandoned did not fire -- the trim completed or never started instead of being abandoned")
+        add_reason(reasons, stale_resume_count >= 1, "RecoveryStaleResumeAccepted did not fire -- the whole-outage catch-up deadline did not expire against a throttled provider that can never catch up in time")
+        add_reason(reasons, resumed_count >= 1 and resumed_bytes_suppressed > 0, "recovery did not resume after the stale-resume acceptance with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
+        add_reason(reasons, seconds_to_stale_resume is not None and seconds_to_stale_resume < 30.0, f"stale resume was not bounded by the catch-up deadline -- took {seconds_to_stale_resume}s from reconnect (expected roughly 15s, well under the old byte-only ceiling this replaces)")
+        add_reason(reasons, seconds_to_resume is not None and seconds_to_resume < 40.0, f"recovery output resumption was not bounded -- took {seconds_to_resume}s from reconnect")
+        add_reason(reasons, resolved > 0, "fingerprint analyzer resolved zero windows against the source fixture")
+        add_reason(reasons, backward_jump is not None, "stale resume was accepted but no discontinuity was observed downstream -- expected a deliberate, logged jump since freshness was never reached")
+        add_reason(reasons, aligned, "captured downstream stream was not TS aligned")
+        print("PASS" if not reasons else "FAIL")
+        for reason in reasons:
+            print(f"  - {reason}")
+        ctx.record(
+            "CLEAN-RELAY-08", not reasons, "; ".join(reasons) if reasons else "whole-outage catch-up deadline expired against a throttled provider and recovery accepted a bounded stale resume",
+            {
+                "status_codes": {"stream": status_code}, "provider_connections": total_opened,
+                "outer_reconnect_event_count": reconnect_count, "recovery_overlap_trim_abandoned_count": abandoned_count,
+                "recovery_stale_resume_accepted_count": stale_resume_count,
+                "recovery_output_resumed_count": resumed_count, "recovery_output_resumed_bytes_suppressed": resumed_bytes_suppressed,
+                "seconds_reconnect_to_stale_resume": seconds_to_stale_resume, "seconds_reconnect_to_resume": seconds_to_resume,
+                "capture_bytes": len(capture), "second_connection_first_chunk_index": second_connection_first_chunk_index,
+                "fingerprint_windows_resolved": resolved, "fingerprint_backward_jump": backward_jump,
+                "ts_aligned": aligned, "provider_counts": state,
+            },
+        )
+    except Exception as exc:
+        ctx.record("CLEAN-RELAY-08", False, str(exc))
+    finally:
+        teardown(m3undle_url, provider_id, proc)
+
+
 @SUITE.setup
 def setup(base_url: str) -> dict[str, object]:
     collector = _RecordCollector()
@@ -634,6 +739,7 @@ def setup(base_url: str) -> dict[str, object]:
         scenario_clean_relay_inprocess_replay(collector, base_url)
         scenario_clean_relay_timestamp_discontinuity(collector, base_url)
         scenario_clean_relay_bounded_fallback(collector, base_url)
+        scenario_clean_relay_catchup_deadline(collector, base_url)
         state["reason"] = None
         return {"state": state}
     except Exception as exc:  # setup errors are reported as per-case skips below

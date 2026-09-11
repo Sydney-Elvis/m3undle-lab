@@ -40,6 +40,7 @@ CASE_IDS = [
     "HEALTH-DECAY-NEW-BAD-EVENT-BLOCKS-RELAX",
     "HEALTH-STABLE-NO-HISTORY-AUTO-DIRECT",
     "HEALTH-CLIENT-ABORT-WHILE-HEALTHY",
+    "HEALTH-FREQUENT-CLEAN-FAILURES-UNSTABLE",
 ]
 
 
@@ -163,6 +164,32 @@ def unstable_bad_events(base_utc: datetime) -> list[dict[str, Any]]:
     ]
 
 
+def frequent_clean_failure_events(base_utc: datetime, count: int = 6, spacing_minutes: int = 9) -> list[dict[str, Any]]:
+    # A channel that fails and cleanly recovers (H264Idr, not the fallback packet-boundary
+    # path) frequently enough is chronically flapping even though no individual recovery
+    # ever trips the other Unstable signals (ForcedRetune, FallbackRecoveryResumes>=2,
+    # TsSyncLoss>=2) -- the frequency-only path added alongside the Cautious relay-mode fix.
+    # Spaced under the ~10-minutes-per-failure the classifier is tuned against, all within
+    # the trailing hour it actually counts over.
+    events: list[dict[str, Any]] = []
+    for index in range(count):
+        event_utc = base_utc + timedelta(minutes=index * spacing_minutes)
+        events.append({
+            "eventKind": "UpstreamFailure",
+            "eventUtc": format_utc(event_utc),
+            "upstreamFailureKind": "UpstreamUnavailable",
+            "sessionId": f"phase4-seeded-frequent-failure-{index}",
+        })
+        events.append({
+            "eventKind": "RecoveryOutputResumed",
+            "eventUtc": format_utc(event_utc + timedelta(seconds=30)),
+            "safeStartKind": "H264Idr",
+            "relayMode": "Direct",
+            "sessionId": f"phase4-seeded-frequent-failure-{index}",
+        })
+    return events
+
+
 def clean_watch_event(event_utc: datetime, duration_seconds: float) -> dict[str, Any]:
     return {"eventKind": "CleanWatchCompleted", "eventUtc": format_utc(event_utc), "cleanWatchDurationSeconds": duration_seconds, "sessionId": "phase4-seeded-clean-watch"}
 
@@ -235,7 +262,11 @@ def scenario_decay_unstable_to_cautious(ctx: _RecordCollector, m3undle_url: str,
         add_reason(reasons, profile_name(health_after) == "Cautious", "clean watch did not decay Unstable exactly one level")
         add_reason(reasons, health_after.get("tsSyncLoss") == 2, "raw bad evidence was not retained")
         add_reason(reasons, health_after.get("idrRecoveryResumes") == 1, "raw IDR recovery evidence was not retained")
-        add_reason(reasons, selected_relay_mode(health_after) == "Direct", "relaxed Auto profile did not select direct relay")
+        # Cautious now also selects clean remux under Auto (restored — a channel that fails
+        # and cleanly recovers arbitrarily many times could otherwise sit at Cautious forever
+        # and never leave Direct's fragile stall timeout). Only BuildPolicy's severity-gated
+        # recovery budgets relax back to defaults at Cautious; relay-mode protection does not.
+        add_reason(reasons, selected_relay_mode(health_after) == "FfmpegCleanRemux", "decayed-to-Cautious Auto profile did not select clean remux")
     except Exception as exc:
         reasons.append(str(exc))
     finally:
@@ -392,6 +423,47 @@ def scenario_client_abort_while_healthy(ctx: _RecordCollector, m3undle_url: str,
     ctx.record("HEALTH-CLIENT-ABORT-WHILE-HEALTHY", not reasons, "; ".join(reasons) if reasons else "benign client abort did not degrade a healthy upstream's profile")
 
 
+def scenario_frequent_clean_failures_unstable(ctx: _RecordCollector, m3undle_url: str, provider_id: str, channel: dict[str, str]) -> None:
+    print("\n--- Scenario: HEALTH-FREQUENT-CLEAN-FAILURES-UNSTABLE ---")
+    provider_channel_id = channel["provider_channel_id"]
+    # All within the trailing hour RecentUpstreamFailures counts over -- last event 5
+    # minutes ago, first 50 minutes ago, 9 minutes apart (tighter than the ~10-minute
+    # frequency threshold is tuned against).
+    base_utc = datetime.now(UTC) - timedelta(minutes=50)
+    events = frequent_clean_failure_events(base_utc)
+    reasons: list[str] = []
+    try:
+        reset_stream_state(m3undle_url)
+        clear_health(m3undle_url, provider_id, provider_channel_id)
+        seed_health(m3undle_url, provider_id, provider_channel_id, channel["display_name"], events)
+        health = query_health(m3undle_url, provider_id, provider_channel_id)
+
+        policy = recovery_policy(health)
+        reason = str(policy.get("reason") or "")
+        add_reason(reasons, health.get("upstreamFailures") == 6, "seeded upstream-failure evidence was not visible")
+        add_reason(reasons, health.get("idrRecoveryResumes") == 6, "seeded clean (H264Idr) recovery evidence was not visible")
+        add_reason(reasons, health.get("fallbackRecoveryResumes", 0) == 0, "clean recoveries were misclassified as fallback recoveries")
+        add_reason(reasons, health.get("forcedRetunes", 0) == 0, "scenario unexpectedly recorded a forced retune")
+        add_reason(reasons, health.get("tsSyncLoss", 0) == 0, "scenario unexpectedly recorded TS sync loss")
+        # None of the other Unstable signals (ForcedRetune, FallbackRecoveryResumes>=2,
+        # TsSyncLoss>=2) fired above -- only frequency-in-the-trailing-hour can be driving
+        # this, distinguishing it from HEALTH-DECAY-UNSTABLE-TO-LESS-DEFENSIVE's severity-
+        # evidence path. Frequency isn't otherwise exposed on the debug DTO, so this reads
+        # it out of the human-readable classifier reason instead.
+        add_reason(reasons, "recentUpstreamFailures=6" in reason, f"classifier reason did not attribute the profile to 6 recent upstream failures: {reason!r}")
+        add_reason(reasons, profile_name(health) == "Unstable", "frequent cleanly-recovered upstream failures did not classify the channel Unstable")
+        add_reason(reasons, selected_relay_mode(health) == "FfmpegCleanRemux", "frequency-driven Unstable Auto profile did not select clean remux")
+    except Exception as exc:
+        reasons.append(str(exc))
+    finally:
+        clear_health(m3undle_url, provider_id, provider_channel_id)
+
+    print("PASS" if not reasons else "FAIL")
+    for reason_line in reasons:
+        print(f"  - {reason_line}")
+    ctx.record("HEALTH-FREQUENT-CLEAN-FAILURES-UNSTABLE", not reasons, "; ".join(reasons) if reasons else "6 cleanly-recovered upstream failures within the trailing hour classified the channel Unstable on frequency alone")
+
+
 @SUITE.setup
 def setup(base_url: str) -> dict[str, object]:
     collector = _RecordCollector()
@@ -430,6 +502,7 @@ def setup(base_url: str) -> dict[str, object]:
         scenario_bad_after_clean_watch(collector, base_url, provider_id, channel)
         scenario_stable_no_history_auto_direct(collector, base_url, provider_id, channel)
         scenario_client_abort_while_healthy(collector, base_url, provider_id, channel)
+        scenario_frequent_clean_failures_unstable(collector, base_url, provider_id, channel)
 
         state["reason"] = None
         return {"state": state}
