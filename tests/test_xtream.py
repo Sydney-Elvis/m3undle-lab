@@ -8,10 +8,10 @@ in a web-player HLS-source provider to confirm Electron/browser UA handling
 stays on the right transport. A third pass swaps to a native upstream Xtream
 provider and re-verifies both the standard M3U and Xtream outputs against it.
 
-Structural adaptation, not a behavior change: same as test_profiles.py --
+Uses the same collector-replay registration as test_profiles.py --
 the frozen script is one long imperative main() with a deep proceed-chain and
 some paths that leave a case unrecorded entirely. @SUITE.setup runs the exact
-same sequence (test functions ported unchanged, called against a
+same sequence (individual checks called against a
 _RecordCollector standing in for the original RunContext) and stores each
 one's outcome; each registered case replays its own precomputed result.
 
@@ -38,6 +38,7 @@ from agent import common as lab_common
 from agent.container import get_docker_gateway, wait_up
 from agent.suites import suite
 
+from m3undle_lab.hls_probe import probe_generated_hls
 from m3undle_lab.api import M3UndleClient
 from m3undle_lab.commands import CONTAINER_NAME, HOST_OVERRIDE
 from m3undle_lab.simulator import SimulatorInstance
@@ -341,16 +342,20 @@ def _test_xtr_web_01(ctx: _RecordCollector, base: str, streams: list[dict]) -> N
     )
     explicit_hls_ok = explicit_hls.get("status") in (301, 302, 303, 307, 308) and "/hls/generated/" in str(explicit_hls.get("location", ""))
 
+    playback = probe_generated_hls(base, str(browser.get("location", ""))) if browser_ok else {"ok": False}
+
     ctx.record(
-        "XTR-WEB-01", electron_ok and browser_ok and explicit_hls_ok,
+        "XTR-WEB-01", electron_ok and browser_ok and explicit_hls_ok and playback["ok"],
         " | ".join([
             f"electron=status={electron.get('status')} ct={electron.get('content_type')!r} bytes={electron.get('bytes')} "
             f"hls_manifest={electron.get('hls_manifest')} ts_framing={electron.get('ts_framing')} location={electron.get('location')!r}",
             f"browser=status={browser.get('status')} location={browser.get('location')!r}",
             f"format_hls=status={explicit_hls.get('status')} location={explicit_hls.get('location')!r}",
+            f"playback={playback}",
         ]),
-        detail={"electron": electron, "browser": browser, "format_hls": explicit_hls},
+        detail={"electron": electron, "browser": browser, "format_hls": explicit_hls, "playback": playback},
     )
+
 
 
 def _test_prov_07(ctx: _RecordCollector, client: M3UndleClient, *, expected_base_url: str, expected_username: str) -> None:

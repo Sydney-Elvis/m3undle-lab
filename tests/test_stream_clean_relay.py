@@ -8,8 +8,10 @@ in-process FFmpeg reconnect, suppresses a mid-connection unsignaled
 timestamp discontinuity, and falls back to a bounded overlap-trim in direct
 (no-FFmpeg) mode when the trim can't complete in budget.
 
-Structural adaptation, not a behavior change: same collector-replay pattern
-already used for the other four ported stream-scenario suites.
+Recovery assertions fingerprint complete post-resume output, not just the
+pre-failure prefix. CLEAN-RELAY-09 also decodes generated HLS segments after
+an outer relay reconnect. The suite uses the collector-replay registration
+pattern shared by the other stream-scenario suites.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from agent.suites import suite
 
 from m3undle_lab.api import M3UndleClient
 from m3undle_lab.content_fingerprint import build_source_es, count_resolved, first_backward_jump, resolve_offsets
+from m3undle_lab.hls_probe import probe_generated_hls
 from m3undle_lab.simulator import SIMULATOR_ENGINE_DIR, SimulatorInstance
 from m3undle_lab.stream_scenarios import get_json, iter_chunks_with_deadline, post_json, read_stream_bytes
 
@@ -58,7 +61,7 @@ TIMELINE_EVENT_KINDS = {
 }
 
 TS_PACKET_SIZE = 188
-CASE_IDS = ["CLEAN-RELAY-01", "CLEAN-RELAY-02", "CLEAN-RELAY-04", "CLEAN-RELAY-05", "CLEAN-RELAY-06", "CLEAN-RELAY-07", "CLEAN-RELAY-08"]
+CASE_IDS = ["CLEAN-RELAY-01", "CLEAN-RELAY-02", "CLEAN-RELAY-04", "CLEAN-RELAY-05", "CLEAN-RELAY-06", "CLEAN-RELAY-07", "CLEAN-RELAY-08", "CLEAN-RELAY-09"]
 
 
 def _timestamp_discontinuity_fixture_path() -> str:
@@ -406,6 +409,7 @@ def scenario_clean_relay_inprocess_replay(ctx: _RecordCollector, m3undle_url: st
         capture = bytearray()
         latest_events: list[dict[str, Any]] = []
         status_code = None
+        post_resume_capture_start: int | None = None
         with urllib.request.urlopen(urllib.request.Request(stream_url), timeout=60.0) as resp:
             status_code = resp.status
             for chunk in iter_chunks_with_deadline(resp, chunk_size=TS_PACKET_SIZE * 35, deadline_seconds=60.0):
@@ -413,12 +417,12 @@ def scenario_clean_relay_inprocess_replay(ctx: _RecordCollector, m3undle_url: st
                     continue
                 capture.extend(chunk)
                 if len(capture) % (TS_PACKET_SIZE * 350) < len(chunk):
-                    # feature/continuous-stream-test's clamped-DTS-ramp recovery path resumes
-                    # via a second MpegTsSafeStartSelected -- used here only as a cheap stop
-                    # condition, not as the pass/fail signal itself (see reasons below).
                     latest_events = get_events(m3undle_url)
-                    if count_events(latest_events, EVENT_MPEGTS_SAFE_START_SELECTED) >= 2:
-                        break
+                    if count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1:
+                        if post_resume_capture_start is None:
+                            post_resume_capture_start = len(capture)
+                        if len(capture) - post_resume_capture_start >= 64 * 1024:
+                            break
                 if len(capture) >= 8 * 1024 * 1024:
                     break
 
@@ -443,6 +447,9 @@ def scenario_clean_relay_inprocess_replay(ctx: _RecordCollector, m3undle_url: st
         offsets = resolve_offsets(bytes(capture), source_es)
         backward_jump = first_backward_jump(offsets)
         resolved = count_resolved(offsets)
+        post_resume_resolved = count_resolved(resolve_offsets(
+            bytes(capture[post_resume_capture_start:]), source_es
+        )) if post_resume_capture_start is not None else 0
 
         connection_timeline = state.get("connection_timeline", {})
         timeline_entries = list(connection_timeline.values())
@@ -455,6 +462,7 @@ def scenario_clean_relay_inprocess_replay(ctx: _RecordCollector, m3undle_url: st
         add_reason(reasons, reconnect_count == 0, "M3Undle outer reconnect ran during the in-process FFmpeg reconnect")
         add_reason(reasons, rewind_count >= 1, "in-process timeline rewind was not diagnosed")
         add_reason(reasons, second_connection_first_chunk_index == 0, f"provider's second connection did not actually restart from byte zero (first_chunk_index={second_connection_first_chunk_index})")
+        add_reason(reasons, post_resume_resolved >= 2, f"insufficient independently fingerprinted output after resume: {post_resume_resolved} windows")
         add_reason(reasons, resolved > 0, "fingerprint analyzer resolved zero windows against the source fixture")
         add_reason(reasons, backward_jump is None, f"replayed provider content was published downstream, not suppressed: {backward_jump}")
         add_reason(reasons, resumed_count >= 1 and resumed_bytes_suppressed > 0, "recovery did not resume with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
@@ -469,6 +477,7 @@ def scenario_clean_relay_inprocess_replay(ctx: _RecordCollector, m3undle_url: st
                 "status_codes": {"stream": status_code}, "provider_connections": total_opened, "ffmpeg_relay_started_count": relay_count,
                 "outer_reconnect_event_count": reconnect_count, "inprocess_rewind_event_count": rewind_count,
                 "recovery_output_resumed_count": resumed_count, "recovery_output_resumed_bytes_suppressed": resumed_bytes_suppressed,
+                "post_resume_fingerprint_windows_resolved": post_resume_resolved,
                 "capture_bytes": len(capture), "capture_sha256": hashlib.sha256(capture).hexdigest(),
                 "second_connection_first_chunk_index": second_connection_first_chunk_index,
                 "fingerprint_windows_resolved": resolved, "fingerprint_backward_jump": backward_jump,
@@ -496,6 +505,7 @@ def scenario_clean_relay_timestamp_discontinuity(ctx: _RecordCollector, m3undle_
         capture = bytearray()
         latest_events: list[dict[str, Any]] = []
         status_code = None
+        post_resume_capture_start: int | None = None
         with urllib.request.urlopen(urllib.request.Request(stream_url), timeout=60.0) as resp:
             status_code = resp.status
             for chunk in iter_chunks_with_deadline(resp, chunk_size=TS_PACKET_SIZE * 35, deadline_seconds=60.0):
@@ -505,8 +515,11 @@ def scenario_clean_relay_timestamp_discontinuity(ctx: _RecordCollector, m3undle_
                 if len(capture) % (TS_PACKET_SIZE * 350) < len(chunk):
                     latest_events = get_events(m3undle_url)
                     if count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1:
-                        break
-                if len(capture) >= 1_250_000:
+                        if post_resume_capture_start is None:
+                            post_resume_capture_start = len(capture)
+                        if len(capture) - post_resume_capture_start >= 64 * 1024:
+                            break
+                if len(capture) >= 8 * 1024 * 1024:
                     break
 
         latest_events = get_events(m3undle_url)
@@ -525,6 +538,9 @@ def scenario_clean_relay_timestamp_discontinuity(ctx: _RecordCollector, m3undle_
         offsets = resolve_offsets(bytes(capture), source_es)
         backward_jump = first_backward_jump(offsets)
         resolved = count_resolved(offsets)
+        post_resume_resolved = count_resolved(resolve_offsets(
+            bytes(capture[post_resume_capture_start:]), source_es
+        )) if post_resume_capture_start is not None else 0
 
         reasons: list[str] = []
         add_reason(reasons, status_code == 200, "downstream stream did not open successfully")
@@ -533,6 +549,7 @@ def scenario_clean_relay_timestamp_discontinuity(ctx: _RecordCollector, m3undle_
         add_reason(reasons, reconnect_count == 0, "M3Undle outer reconnect ran even though this is a single uninterrupted connection")
         add_reason(reasons, rewind_count >= 1, "mid-connection timestamp discontinuity was not diagnosed")
         add_reason(reasons, resumed_count >= 1 and resumed_bytes_suppressed > 0, "recovery did not resume with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
+        add_reason(reasons, post_resume_resolved >= 2, f"insufficient independently fingerprinted output after resume: {post_resume_resolved} windows")
         add_reason(reasons, resolved > 0, "fingerprint analyzer resolved zero windows against the source fixture")
         add_reason(reasons, backward_jump is None, f"rewound content was published downstream, not suppressed: {backward_jump}")
         add_reason(reasons, aligned, "captured downstream stream was not TS aligned")
@@ -545,6 +562,7 @@ def scenario_clean_relay_timestamp_discontinuity(ctx: _RecordCollector, m3undle_
                 "status_codes": {"stream": status_code}, "provider_connections": total_opened, "ffmpeg_relay_started_count": relay_count,
                 "outer_reconnect_event_count": reconnect_count, "inprocess_rewind_event_count": rewind_count,
                 "recovery_output_resumed_count": resumed_count, "recovery_output_resumed_bytes_suppressed": resumed_bytes_suppressed,
+                "post_resume_fingerprint_windows_resolved": post_resume_resolved,
                 "capture_bytes": len(capture), "fingerprint_windows_resolved": resolved, "fingerprint_backward_jump": backward_jump,
                 "ts_aligned": aligned, "provider_counts": state,
             },
@@ -570,6 +588,7 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
         capture = bytearray()
         latest_events: list[dict[str, Any]] = []
         status_code = None
+        post_resume_capture_start: int | None = None
         with urllib.request.urlopen(urllib.request.Request(stream_url), timeout=60.0) as resp:
             status_code = resp.status
             for chunk in iter_chunks_with_deadline(resp, chunk_size=TS_PACKET_SIZE * 35, deadline_seconds=60.0):
@@ -579,7 +598,10 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
                 if len(capture) % (TS_PACKET_SIZE * 350) < len(chunk):
                     latest_events = get_events(m3undle_url)
                     if count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1:
-                        break
+                        if post_resume_capture_start is None:
+                            post_resume_capture_start = len(capture)
+                        if len(capture) - post_resume_capture_start >= 64 * 1024:
+                            break
                 if len(capture) >= 8 * 1024 * 1024:
                     break
 
@@ -597,6 +619,9 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
         offsets = resolve_offsets(bytes(capture), source_es)
         backward_jump = first_backward_jump(offsets)
         resolved = count_resolved(offsets)
+        post_resume_resolved = count_resolved(resolve_offsets(
+            bytes(capture[post_resume_capture_start:]), source_es
+        )) if post_resume_capture_start is not None else 0
 
         connection_timeline = state.get("connection_timeline", {})
         timeline_entries = list(connection_timeline.values())
@@ -610,6 +635,7 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
         add_reason(reasons, second_connection_first_chunk_index == 0, f"provider's second connection did not actually restart from byte zero (first_chunk_index={second_connection_first_chunk_index})")
         add_reason(reasons, abandoned_count >= 1, "RecoveryOverlapTrimAbandoned did not fire -- the trim completed or never started instead of being bounded-fallback abandoned")
         add_reason(reasons, resumed_count >= 1 and resumed_bytes_suppressed > 0, "recovery did not resume after abandonment with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
+        add_reason(reasons, post_resume_resolved >= 2, f"insufficient independently fingerprinted output after resume: {post_resume_resolved} windows")
         add_reason(reasons, resolved > 0, "fingerprint analyzer resolved zero windows against the source fixture")
         add_reason(reasons, backward_jump is None, f"replayed provider content was published downstream despite the abandoned trim: {backward_jump}")
         add_reason(reasons, aligned, "captured downstream stream was not TS aligned")
@@ -622,6 +648,7 @@ def scenario_clean_relay_bounded_fallback(ctx: _RecordCollector, m3undle_url: st
                 "status_codes": {"stream": status_code}, "provider_connections": total_opened, "ffmpeg_relay_started_count": relay_count,
                 "outer_reconnect_event_count": reconnect_count, "recovery_overlap_trim_abandoned_count": abandoned_count,
                 "recovery_output_resumed_count": resumed_count, "recovery_output_resumed_bytes_suppressed": resumed_bytes_suppressed,
+                "post_resume_fingerprint_windows_resolved": post_resume_resolved,
                 "capture_bytes": len(capture), "second_connection_first_chunk_index": second_connection_first_chunk_index,
                 "fingerprint_windows_resolved": resolved, "fingerprint_backward_jump": backward_jump,
                 "ts_aligned": aligned, "provider_counts": state,
@@ -648,6 +675,8 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
         capture = bytearray()
         latest_events: list[dict[str, Any]] = []
         status_code = None
+        post_resume_capture_start: int | None = None
+        post_resume_bytes = 0
         # The throttled second connection needs far longer than the ~15s catch-up
         # deadline to actually reach the pre-failure position (~455s at 500ms/chunk for
         # ~910 chunks) -- the whole point is that recovery must resume long before that,
@@ -662,7 +691,14 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
                 capture.extend(chunk)
                 latest_events = get_events(m3undle_url)
                 if count_events(latest_events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1:
-                    break
+                    if post_resume_capture_start is None:
+                        post_resume_capture_start = len(capture)
+                    post_resume_bytes = len(capture) - post_resume_capture_start
+                    # A fingerprint window is 8192 video bytes. The event can precede
+                    # delivery, and the first window may straddle the splice. Capture
+                    # enough subsequent output to resolve several complete windows.
+                    if post_resume_bytes >= 64 * 1024:
+                        break
                 if len(capture) >= 4 * 1024 * 1024:
                     break
 
@@ -682,6 +718,9 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
         offsets = resolve_offsets(bytes(capture), source_es)
         backward_jump = first_backward_jump(offsets)
         resolved = count_resolved(offsets)
+        post_resume_resolved = count_resolved(resolve_offsets(
+            bytes(capture[post_resume_capture_start:]), source_es
+        )) if post_resume_capture_start is not None else 0
 
         connection_timeline = state.get("connection_timeline", {})
         timeline_entries = list(connection_timeline.values())
@@ -699,12 +738,15 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
         add_reason(reasons, reconnect_count >= 1, "M3Undle's own outer reconnect did not run")
         add_reason(reasons, second_connection_first_chunk_index == 0, f"provider's second connection did not actually restart from byte zero (first_chunk_index={second_connection_first_chunk_index})")
         add_reason(reasons, abandoned_count >= 1, "RecoveryOverlapTrimAbandoned did not fire -- the trim completed or never started instead of being abandoned")
-        add_reason(reasons, stale_resume_count >= 1, "RecoveryStaleResumeAccepted did not fire -- the whole-outage catch-up deadline did not expire against a throttled provider that can never catch up in time")
-        add_reason(reasons, resumed_count >= 1 and resumed_bytes_suppressed > 0, "recovery did not resume after the stale-resume acceptance with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
+        add_reason(reasons, stale_resume_count == 1, "RecoveryStaleResumeAccepted did not fire -- the whole-outage catch-up deadline did not expire against a throttled provider that can never catch up in time")
+        add_reason(reasons, resumed_count == 1 and resumed_bytes_suppressed > 0, "recovery did not resume after the stale-resume acceptance with a real, non-zero suppressed-byte count (RecoveryOutputResumed)")
         add_reason(reasons, seconds_to_stale_resume is not None and seconds_to_stale_resume < 30.0, f"stale resume was not bounded by the catch-up deadline -- took {seconds_to_stale_resume}s from reconnect (expected roughly 15s, well under the old byte-only ceiling this replaces)")
         add_reason(reasons, seconds_to_resume is not None and seconds_to_resume < 40.0, f"recovery output resumption was not bounded -- took {seconds_to_resume}s from reconnect")
+        add_reason(reasons, post_resume_resolved >= 2, f"insufficient independently fingerprinted output after resume: {post_resume_resolved} windows / {post_resume_bytes} bytes")
         add_reason(reasons, resolved > 0, "fingerprint analyzer resolved zero windows against the source fixture")
         add_reason(reasons, backward_jump is not None, "stale resume was accepted but no discontinuity was observed downstream -- expected a deliberate, logged jump since freshness was never reached")
+        add_reason(reasons, count_events(latest_events, EVENT_IN_PROCESS_RELAY_TIMELINE_REWIND) == 0,
+                   "accepted stale timeline triggered a second recovery hold on the same connection")
         add_reason(reasons, aligned, "captured downstream stream was not TS aligned")
         print("PASS" if not reasons else "FAIL")
         for reason in reasons:
@@ -717,6 +759,7 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
                 "recovery_stale_resume_accepted_count": stale_resume_count,
                 "recovery_output_resumed_count": resumed_count, "recovery_output_resumed_bytes_suppressed": resumed_bytes_suppressed,
                 "seconds_reconnect_to_stale_resume": seconds_to_stale_resume, "seconds_reconnect_to_resume": seconds_to_resume,
+                "post_resume_bytes": post_resume_bytes, "post_resume_fingerprint_windows_resolved": post_resume_resolved,
                 "capture_bytes": len(capture), "second_connection_first_chunk_index": second_connection_first_chunk_index,
                 "fingerprint_windows_resolved": resolved, "fingerprint_backward_jump": backward_jump,
                 "ts_aligned": aligned, "provider_counts": state,
@@ -724,6 +767,64 @@ def scenario_clean_relay_catchup_deadline(ctx: _RecordCollector, m3undle_url: st
         )
     except Exception as exc:
         ctx.record("CLEAN-RELAY-08", False, str(exc))
+    finally:
+        teardown(m3undle_url, provider_id, proc)
+
+
+def scenario_generated_hls_reconnect(ctx: _RecordCollector, m3undle_url: str) -> None:
+    """Generated HLS must keep producing decodable video after a real relay recovery."""
+    import urllib.request
+
+    proc = None
+    provider_id = ""
+    try:
+        proc, provider_id, urls = setup_one_provider(
+            m3undle_url, "provider-generated-hls-reconnect", 19689, clean_relay_mode="off",
+            fixture=str(SCENARIOS_DIR / "clean-relay-bounded-fallback.yaml"),
+        )
+        separator = "&" if "?" in urls[0] else "?"
+        with urllib.request.urlopen(f"{urls[0]}{separator}format=hls", timeout=20) as response:
+            manifest_url = response.geturl()
+        before = probe_generated_hls(m3undle_url, manifest_url)
+        if not before["ok"]:
+            raise AssertionError(f"Initial generated HLS did not decode: {before}")
+
+        deadline = time.monotonic() + 60
+        recovered_segments: set[str] | None = None
+        post_recovery_segments: list[str] = []
+        while time.monotonic() < deadline:
+            events = get_events(m3undle_url)
+            with urllib.request.urlopen(manifest_url, timeout=10) as response:
+                manifest = response.read().decode()
+            names = [line for line in manifest.splitlines() if line and not line.startswith("#")]
+            if count_events(events, EVENT_RECOVERY_OUTPUT_RESUMED):
+                if recovered_segments is None:
+                    recovered_segments = set(names)
+                post_recovery_segments = [name for name in names if name not in recovered_segments]
+                # The first segment closed after resume may contain the truncated
+                # pre-failure GOP. Require two more segments so decoding covers media
+                # wholly produced after the splice, not that unfinished old segment.
+                if len(post_recovery_segments) >= 3:
+                    break
+            time.sleep(0.2)
+
+        after = probe_generated_hls(m3undle_url, manifest_url)
+        events = get_events(m3undle_url)
+        state = provider_state(19689)
+        reasons: list[str] = []
+        add_reason(reasons, state.get("total_opened", 0) >= 2, "provider did not actually reconnect")
+        add_reason(reasons, count_events(events, EVENT_RECOVERY_OUTPUT_RESUMED) >= 1, "relay never resumed")
+        add_reason(reasons, len(post_recovery_segments) >= 3, "generated manifest stopped advancing after recovery")
+        add_reason(reasons, after["ok"], f"post-recovery segments did not decode: {after}")
+        add_reason(reasons, bool(after.get("segment_names")) and all(
+            name in post_recovery_segments for name in after.get("segment_names", [])
+        ), "decoded segments were not produced after recovery")
+        ctx.record("CLEAN-RELAY-09", not reasons, "; ".join(reasons) if reasons else
+                   "generated HLS decoded two new segments after relay reconnect and overlap recovery",
+                   {"before": before, "after": after, "provider_connections": state.get("total_opened"),
+                    "post_recovery_segments": post_recovery_segments})
+    except Exception as exc:
+        ctx.record("CLEAN-RELAY-09", False, str(exc))
     finally:
         teardown(m3undle_url, provider_id, proc)
 
@@ -740,6 +841,7 @@ def setup(base_url: str) -> dict[str, object]:
         scenario_clean_relay_timestamp_discontinuity(collector, base_url)
         scenario_clean_relay_bounded_fallback(collector, base_url)
         scenario_clean_relay_catchup_deadline(collector, base_url)
+        scenario_generated_hls_reconnect(collector, base_url)
         state["reason"] = None
         return {"state": state}
     except Exception as exc:  # setup errors are reported as per-case skips below

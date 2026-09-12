@@ -24,7 +24,7 @@ media content is embedded. The movie uses a 440 Hz tone, the episode uses an
 ## `clean-relay-loop-long.ts`
 
 Used by `provider-a.json`, `provider-clean-relay.json`,
-`provider-stream-health.json`, `provider-web-hls.json`, and
+`provider-stream-health.json`, and
 `scenarios/core/clean-relay-inprocess-replay.yaml` (Stage A2 item 7,
 CLEAN-RELAY-05) — any scenario that needs a real, FFmpeg-probeable MPEG-TS
 stream longer than a couple of seconds.
@@ -73,6 +73,49 @@ in each consuming fixture is kept low enough that no connection loops this
 longer file even once. Confirmed with a full regression on both `main`
 (unaffected) and `feature/continuous-stream-test` (105/105 passing
 afterward).
+
+## `web-hls-segments.ts`
+
+`provider-web-hls.json` serves twelve independently decodable one-second HLS
+segments from this packed file. Each occupies exactly 95 chunks of 1316 bytes
+(125,020 bytes), padded with MPEG-TS null packets. This matches the simulator's
+fixed-size slicing and its `EXTINF:1.000` durations without cutting through GOPs.
+The source is twelve seconds of synthetic H.264 640x360 video at 25 fps, GOP 25,
+and AAC 48 kHz audio (1000 Hz tone). No third-party media is included.
+
+Generated with FFmpeg 6.1.1-3ubuntu5 from image
+`sha256:553e642f361a0ec24927f9cdceab1414ec000c6fe7d7fe0f0481b29a7d7f9eda`
+(local tag `m3undle:branch-bug-stream-dropping`):
+
+```sh
+ffmpeg -hide_banner -loglevel error -y \
+  -f lavfi -i testsrc2=size=640x360:rate=25 \
+  -f lavfi -i sine=frequency=1000:sample_rate=48000 \
+  -t 12 -c:v libx264 -preset veryfast -pix_fmt yuv420p \
+  -g 25 -keyint_min 25 -sc_threshold 0 -c:a aac -b:a 128k \
+  -f hls -hls_time 1 -hls_list_size 0 -hls_flags independent_segments \
+  -hls_segment_filename segment-%02d.ts index.m3u8
+```
+
+Pack the generated segments in lexical order with Python:
+
+```python
+from pathlib import Path
+parts = sorted(Path('.').glob('segment-*.ts'))
+size = ((max(p.stat().st_size for p in parts) + 1315) // 1316) * 1316
+null_packet = bytes([0x47, 0x1f, 0xff, 0x10]) + bytes([0xff]) * 184
+Path('web-hls-segments.ts').write_bytes(b''.join(
+    p.read_bytes() + null_packet * ((size - p.stat().st_size) // 188)
+    for p in parts
+))
+```
+
+SHA-256: `70ed143e013dae327d537f8f0c7a8e8ac9f2299ace0f2ff9192ad9aa74ae9918`.
+The old fixture advertised eight seconds but served only 126,336 bytes from the
+long TS file: about 1.2 seconds of video with only one keyframe. Reopening it
+replayed that same short GOP indefinitely, so generated HLS could not reach its
+two-second segment boundary. This fixture tests transport selection and actual
+segment decoding; reconnect/rewind stress belongs to the clean-relay scenarios.
 
 ## Stage A6 initial fixtures (2026-07-24)
 
