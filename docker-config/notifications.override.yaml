@@ -1,0 +1,53 @@
+# Optional notification validation fixtures. NOT part of the default lab topology.
+#
+# Compose this on top of the host-network override, with the `notifications` profile enabled:
+#   docker compose -f docker-compose.yaml -f m3undle-host-network.override.yaml \
+#                  -f notifications.override.yaml --profile notifications up -d
+#
+# Fixtures (images pinned and reviewed 2026-10-04):
+#   notif-smtp    Mailpit v1.31.4  - STARTTLS-required SMTP with authentication, REST API for independent inspection
+#   notif-matrix  Synapse 1.162.0  - a real homeserver; a second account reads the room as the independent observer
+# Faults a catcher cannot produce (rejected recipients, a dropped final acknowledgement, an untrusted certificate) come from
+# the in-process FaultSmtpServer in m3undle_lab/notifications.py, not from a container.
+#
+# Material under ./notifications/ is prepared by the suite (ensure_test_certificates / prepare_synapse_config) in the lab
+# runtime directory, beside this file:
+#   ./notifications/ca        ca.crt, server.crt, server.key, smtp-auth.txt (lab-only throwaway material)
+#   ./notifications/synapse   generated homeserver config and signing key
+services:
+  m3undle:
+    environment:
+      # Lab only: lets a saved Matrix setup use plain HTTP to the fixture homeserver. Production never sets this.
+      M3UNDLE_NOTIFICATIONS_ALLOW_INSECURE_MATRIX_HTTP: "true"
+      # Normal certificate validation stays on; the throwaway CA is simply the trust anchor for the fixture SMTP server.
+      SSL_CERT_FILE: /lab-ca/ca.crt
+    volumes:
+      - ./notifications/ca:/lab-ca:ro
+
+  notif-smtp:
+    profiles: ["notifications"]
+    container_name: m3undle-lab-notif-smtp
+    image: ${M3UNDLE_LAB_MAILPIT_IMAGE:-axllent/mailpit@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48}
+    network_mode: host
+    environment:
+      MP_SMTP_BIND_ADDR: 127.0.0.1:2525
+      MP_UI_BIND_ADDR: 127.0.0.1:8025
+      MP_SMTP_TLS_CERT: /lab-ca/server.crt
+      MP_SMTP_TLS_KEY: /lab-ca/server.key
+      MP_SMTP_REQUIRE_STARTTLS: "true"
+      MP_SMTP_AUTH_FILE: /lab-ca/smtp-auth.txt
+      MP_MAX_MESSAGES: "500"
+    volumes:
+      - ./notifications/ca:/lab-ca:ro
+    restart: "no"
+
+  notif-matrix:
+    profiles: ["notifications"]
+    container_name: m3undle-lab-notif-matrix
+    image: ${M3UNDLE_LAB_SYNAPSE_IMAGE:-matrixdotorg/synapse@sha256:abeb932f2a9293fcbb886d5ddd0f55a34d532708ebb8dc5642934dd91ca26237}
+    network_mode: host
+    environment:
+      SYNAPSE_CONFIG_PATH: /data/homeserver.yaml
+    volumes:
+      - ./notifications/synapse:/data
+    restart: "no"

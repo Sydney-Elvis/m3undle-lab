@@ -155,6 +155,37 @@ The fixture must contain lab-only endpoints and synthetic credentials. Set one s
 `M3UNDLE_ENCRYPTION_KEY` in `lab.env` before creating it, and keep that key unchanged while the
 fixture is in use.
 
+## Notifications suite (optional)
+
+`tests/test_notifications.py` validates administrator notifications against real services: a pinned Synapse homeserver and a
+pinned Mailpit SMTP server (`docker-config/notifications.override.yaml`, image versions and digests recorded there), plus an
+in-process fault-injecting SMTP server for what a catcher cannot produce (a refused recipient, a dropped final acknowledgement,
+an untrusted certificate, a server without STARTTLS). Every assertion comes from an independent observation: Mailpit's REST API
+for email, and a second Matrix account reading the room. The default lab topology is unchanged; the fixtures are only started by
+the suite (via `COMPOSE_PROFILES=notifications`) and are removed in its teardown.
+
+Cases, registered as `NOTIF-01` … `NOTIF-08`:
+
+| Case | What it proves |
+| --- | --- |
+| NOTIF-01 | EPG failure then recovery by authenticated STARTTLS email, one message per recipient, history says *Accepted* |
+| NOTIF-02 | The same by Matrix, read back as a plain-text `m.notice` by an independent account; the bot device is discovered |
+| NOTIF-03 | A refused recipient fails alone, the accepted one is sent once, an explicit retry re-sends only the failed one; the password reaches the server exactly as typed |
+| NOTIF-04 | An untrusted certificate or a server without STARTTLS is refused before any credential is sent |
+| NOTIF-05 | A dead homeserver retries by itself without delaying email, health or refresh; queued work survives restarts and is delivered exactly once |
+| NOTIF-06 | Editing a method switches it off and clears its test; a removed recipient gets nothing; re-testing re-announces current state |
+| NOTIF-07 | A restored instance keeps its setup but sends nothing until re-tested and resumed |
+| NOTIF-08 | The Settings page renders real states without secrets; plain HTTP stays gated per setup |
+
+The suite uses the lab-only environment `M3UNDLE_NOTIFICATIONS_ALLOW_INSECURE_MATRIX_HTTP=true` so the fixture homeserver can use
+plain HTTP, and mounts a throwaway CA as the container's trust anchor. The CA publishes a CRL (served by the suite) because M3Undle
+validates certificate revocation like any other check. Set a stable lab-only `M3UNDLE_ENCRYPTION_KEY` in `lab.env`; secrets cannot be
+stored without one.
+
+Run it like any other suite, for example `./lab run --only notifications`, or `./lab run --only notifications --case NOTIF-01`
+for one case. The case logic lives in `m3undle_lab/notification_cases.py` and the fixtures in `m3undle_lab/notifications.py`; neither
+imports se-lab, so they can also be driven by hand against any M3Undle that can reach the fixtures.
+
 ## Before adding new lifecycle code here
 
 This lab is meant to stay a thin consumer of se-lab — `commands.py` should be orchestration

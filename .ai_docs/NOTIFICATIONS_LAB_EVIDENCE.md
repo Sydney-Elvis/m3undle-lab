@@ -1,0 +1,3 @@
+# Notifications lab evidence (2026-10-04)
+Cases NOTIF-01..08 added (`m3undle_lab/notification_cases.py`, registered in `tests/test_notifications.py`, group `notifications`, order 210); fixtures in `docker-config/notifications.override.yaml` and `fixtures/notifications/`.
+Not run through `./lab run`: the `se-lab` submodule is empty and the lab deploys from a git ref, so the work needs a commit (not performed). All cases were instead executed against real pinned Synapse 1.162.0 and Mailpit v1.31.4 with a locally built M3Undle image from the working tree; all sub-checks passed (NOTIF-03b/c after a clean data dir; NOTIF-05a after fixing the assertion to use /livez). Remaining gate: run the suite via the official runner once the M3Undle change is available as a ref.
