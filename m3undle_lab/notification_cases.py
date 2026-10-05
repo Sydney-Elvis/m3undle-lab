@@ -373,16 +373,25 @@ def notif_03_partial_recipient_failure_and_exact_password(ctx: Ctx, s: Scenario,
         s.api.settings(sendingEnabled=True, failureDelayMinutes=0)
         s.make_unhealthy()
 
-        wait_for(lambda: any(d["state"] == "Failed" for d in s.api.deliveries(provider=SMTP)), timeout=150, what="the refused recipient to be marked Failed")
-        wait_for(lambda: len(fault.messages) >= 1, timeout=60, what="the accepted recipient's message")
-        deliveries = s.api.deliveries(provider=SMTP)
-        failed = [d for d in deliveries if d["state"] == "Failed"]
-        accepted = [d for d in deliveries if d["state"] == "Accepted" and d["kind"] == "Opening"]
+        # History spans every notification, so scope this incident's outcome per recipient instead of by count alone.
+        def _failed_bad() -> Any:
+            return [d for d in s.api.deliveries(provider=SMTP) if d["state"] == "Failed" and d["target"] == "bad@lab.test"]
+
+        def _accepted_good() -> Any:
+            return [d for d in s.api.deliveries(provider=SMTP)
+                    if d["state"] == "Accepted" and d["kind"] == "Opening" and d["target"] == "good@lab.test"]
+
+        failed = wait_for(_failed_bad, timeout=150, what="the refused recipient to be marked Failed")
+        accepted = wait_for(_accepted_good, timeout=60, what="the accepted recipient's Opening to be Accepted")
         time.sleep(40)  # long enough for any wrongful automatic retry of the accepted recipient to show up
+        deliveries = s.api.deliveries(provider=SMTP)
+        failed = [d for d in deliveries if d["state"] == "Failed" and d["target"] == "bad@lab.test"]
+        accepted = [d for d in deliveries if d["state"] == "Accepted" and d["kind"] == "Opening" and d["target"] == "good@lab.test"]
         good_copies = [m for m in fault.messages if "good@lab.test" in m.recipients]
-        _check(ctx, f"{tid}b", len(failed) == 1 and failed[0]["target"] == "bad@lab.test" and failed[0]["errorCode"] == "smtp_rejected"
-               and len(accepted) == 1 and len(good_copies) == 1,
-               f"partial result is per recipient: bad@ Failed({failed[0]['errorCode'] if failed else None}), good@ Accepted once ({len(good_copies)} copy)")
+        targets = sorted({d["target"] for d in deliveries})
+        _check(ctx, f"{tid}b", len(failed) == 1 and failed[0]["errorCode"] == "smtp_rejected" and len(accepted) == 1 and len(good_copies) == 1,
+               f"partial result is per recipient (targets seen: {targets}): bad@ Failed rows={len(failed)} code={failed[0]['errorCode'] if failed else None}, "
+               f"good@ Accepted rows={len(accepted)}, good@ copies at the server={len(good_copies)}")
 
         fault.rcpt_replies.clear()
         item = failed[0]

@@ -253,8 +253,14 @@ def prepare_synapse_config(directory: Path, *, bind: str = "0.0.0.0", shared_sec
         )
         config.write_text(text)
     for path in directory.iterdir():
-        path.chmod(0o666 if path.is_file() else 0o777)
-    directory.chmod(0o777)
+        try:
+            path.chmod(0o666 if path.is_file() else 0o777)
+        except PermissionError:
+            pass  # owned by the Synapse container user from an earlier run; that user can still use its own files
+    try:
+        directory.chmod(0o777)
+    except PermissionError:
+        pass
     return config
 
 
