@@ -186,6 +186,33 @@ Run it like any other suite, for example `./lab run --only notifications`, or `.
 for one case. The case logic lives in `m3undle_lab/notification_cases.py` and the fixtures in `m3undle_lab/notifications.py`; neither
 imports se-lab, so they can also be driven by hand against any M3Undle that can reach the fixtures.
 
+## Lineup protection suite
+
+`tests/test_lineup_protection.py` replays the incident where a provider's panel changed URL, the old URL
+stopped working for days, and the first successful refresh on the new URL wiped every mapped channel. It
+pins the rule that a refresh must never destroy user intent: a provider outage, URL change, or bad
+response must not cost mapped channels, groups, numbers or renames.
+
+It uses the provider simulator on two ports (the "old" and "new" host) and changes what a running
+simulator serves with a rewritten fixture plus `/debug/reload`; the generated fixture lives in
+`fixtures/providers/generated/` (git-ignored, removed on teardown). It needs no encryption key except for
+`LINEUP-09`, which skips without one. Cases share one provider and run in order, so a failure early skips
+the cases that depend on it.
+
+| Case | What it proves |
+| --- | --- |
+| LINEUP-01 | The old host going away makes every refresh fail and changes nothing: lineup and mapping untouched, provider reported unhealthy |
+| LINEUP-02 | The provider reappearing on a new host adopts every existing channel: same ids, same mapping, same lineup |
+| LINEUP-03 | A fetch returning 1 of 24 channels is held (`suspect`), the last lineup is kept, and the reason is reported |
+| LINEUP-04 | The provider recovering restores everything without intervention |
+| LINEUP-05 | An ordinary change (24 to 18 channels) applies at once and is fully reversible |
+| LINEUP-06 | A shrink to 8 channels is held twice and accepted on the third matching refresh |
+| LINEUP-07 | After that shrink, the provider restoring the full lineup brings every mapped channel back with its state, number and rename |
+| LINEUP-08 | Repeated bad responses never wipe the lineup, and a healthy fetch resets the streak |
+| LINEUP-09 | The same host move against a native Xtream provider |
+
+Run it with `./lab run --only lineup-protection` (or `--case LINEUP-03` for one case).
+
 ## Before adding new lifecycle code here
 
 This lab is meant to stay a thin consumer of se-lab — `commands.py` should be orchestration
