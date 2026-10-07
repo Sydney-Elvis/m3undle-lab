@@ -241,17 +241,17 @@ def epg_08(ctx: Any, state: dict[str, object]) -> None:
             raise RuntimeError(f"Source PATCH returned {patch_status}: {patch_body}")
         if not _refresh(client):
             raise RuntimeError("Initial refresh did not complete")
+        # Within the cadence, a refresh reuses the cached guide and never consults upstream. That is not a check:
+        # it must record no fetch run and must not renew lastSuccessUtc/lastCheckedUtc (it would hide a dead source).
         prior_ids = {str(run.get("epgFetchRunId") or "") for run in _runs(client, source_id)}
-        started = datetime.now(UTC)
+        _, before = _source(client, source_id)
         if not _refresh(client):
             raise RuntimeError("Cadence refresh did not complete")
         new_runs = [run for run in _runs(client, source_id) if str(run.get("epgFetchRunId") or "") not in prior_ids]
-        latest = max(new_runs, key=lambda run: _parse_utc(run.get("startedUtc")) or datetime.min.replace(tzinfo=UTC), default=None)
-        _, current = _source(client, source_id)
-        latest_started = _parse_utc(latest.get("startedUtc")) if isinstance(latest, dict) else None
-        last_success = _parse_utc(current.get("lastSuccessUtc"))
-        valid = bool(new_runs) and isinstance(latest, dict) and latest.get("status") == "not_modified" and latest_started is not None and latest_started >= started and last_success is not None and last_success >= started
-        ctx.record("EPG-08", valid, f"new_runs={len(new_runs)} latest_status={latest.get('status') if isinstance(latest, dict) else None} lastSuccessUtc={current.get('lastSuccessUtc')}")
+        _, after = _source(client, source_id)
+        unchanged = all(before.get(key) == after.get(key) for key in ("lastSuccessUtc", "lastCheckedUtc", "lastFailureUtc"))
+        valid = not new_runs and unchanged and _parse_utc(after.get("lastSuccessUtc")) is not None
+        ctx.record("EPG-08", valid, f"new_runs={len(new_runs)} evidence_unchanged={unchanged} lastSuccessUtc={after.get('lastSuccessUtc')} lastCheckedUtc={after.get('lastCheckedUtc')}")
     except Exception as exc:
         ctx.fail("EPG-08", str(exc))
 
